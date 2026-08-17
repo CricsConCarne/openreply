@@ -1,4 +1,4 @@
-import { signIn } from "@/lib/auth";
+import { EMAIL_PROVIDER_ID, signIn } from "@/lib/auth";
 import { getCampaignTemplate } from "@/lib/templates/campaign-templates";
 
 export const metadata = {
@@ -25,7 +25,7 @@ export default async function LoginPage({
 
   async function sendMagicLink(formData: FormData) {
     "use server";
-    await signIn("resend", {
+    await signIn(EMAIL_PROVIDER_ID, {
       email: String(formData.get("email") ?? ""),
       redirectTo: callbackUrl,
     });
