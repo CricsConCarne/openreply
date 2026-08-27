@@ -30,6 +30,14 @@ FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# scripts/cron.sh fetches the /api/cron routes with wget, and node:20-slim ships
+# neither wget nor curl. Without this the scheduler starts cleanly and then logs
+# every job as FAILED: `if body=$(wget ...)` takes the failure branch when the
+# binary is absent, so the message blames the route rather than the missing tool.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends wget \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/.next ./.next
 COPY --from=build /app/app/generated ./app/generated
@@ -41,6 +49,11 @@ COPY --from=build /app/prisma.config.ts ./prisma.config.ts
 COPY --from=build /app/next.config.ts ./next.config.ts
 COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/package.json ./package.json
+# The `cron` process runs `sh scripts/cron.sh`. Without this COPY the image
+# builds, deploys, and passes its health check, and the scheduler dies instantly
+# on "No such file or directory" — the token refresh then never runs and every
+# automation stops silently weeks later when the Instagram token expires.
+COPY --from=build /app/scripts ./scripts
 
 EXPOSE 3000
 # Default to the web process — the worker service overrides this with

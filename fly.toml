@@ -1,0 +1,121 @@
+# OpenReply — Instagram comment→DM automation.
+#
+# One Fly app, two process groups, one image (the upstream Dockerfile). The spec
+# prefers this over two apps for a single reason worth stating: `fly secrets set`
+# then covers both processes at once, and the two MUST agree on DATABASE_URL,
+# REDIS_URL and ENCRYPTION_KEY. The worker decrypts Instagram tokens that the web
+# process encrypted; a drifted ENCRYPTION_KEY between two apps fails at run time,
+# per-token, with no deploy-time signal.
+#
+# Fork policy (spec NFR5): this file and the cron machine are ours. Application
+# code stays upstream so the monthly rebase is a fast-forward.
+
+app = "openreply"
+primary_region = "iad"
+
+[build]
+  # Upstream Dockerfile: node:20-slim, EXPOSE 3000, CMD ["npm","run","start"].
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  # Pinned deliberately. The spec deprecation-tracks Graph API versions with
+  # upstream rather than floating, so a Meta version bump is a reviewed change.
+  META_GRAPH_API_VERSION = "v25.0"
+  # Registered with Meta as the OAuth redirect host and the webhook host.
+  # CHANGING THIS SILENTLY KILLS WEBHOOKS (spec NFR6) — Meta keeps delivering to
+  # the old hostname and nothing surfaces an error. Treat it as immutable once
+  # Epic 3 registers it.
+  NEXTAUTH_URL = "https://reply.dasreplay.com"
+  # Where scripts/cron.sh calls the cron routes. Process-scoped on purpose:
+  # plain `openreply.internal` round-robins across EVERY machine in the app,
+  # including the worker and cron machines, which serve no HTTP — so a share of
+  # the calls would fail. `web.process.` resolves only to the web group.
+  # It goes over the private network, so it is http, not https.
+  CRON_BASE_URL = "http://web.process.openreply.internal:3000"
+
+# Three process groups off one image. `start` is the Dockerfile's own CMD; the
+# other two override it.
+#
+# `cron` replaces the "crons" block in vercel.json, which Fly ignores entirely.
+# The spec proposed a Fly Machines scheduled `curl` and allowed anything simpler
+# — upstream already ships scripts/cron.sh, a self-contained scheduler intended
+# to run as its own container from this same image. Reusing it beats scheduling
+# our own, on three counts:
+#
+#   1. It keeps the schedule upstream, so the monthly rebase carries changes to
+#      it for free. Re-implementing it here would be app logic in the fork, which
+#      spec NFR5 forbids.
+#   2. Fly's `--schedule` only offers hourly/daily/weekly/monthly, with no choice
+#      of hour. The upstream schedule is not uniform: refresh-tokens and
+#      snapshot-followers are daily, but attach-next-reel runs EVERY 5 MINUTES,
+#      deliberately — a campaign created before its reel is published stays inert
+#      until that job binds it, so a daily run costs the whole first evening of
+#      comments. A literal reading of the spec's option (a) would have silently
+#      regressed that.
+#   3. refresh-tokens runs before snapshot-followers in the same block, which is
+#      the ordering the jobs actually need. Vercel's staggered 05/06/07 hours only
+#      approximated it.
+[processes]
+  web = "npm run start"
+  worker = "npm run worker"
+  cron = "sh scripts/cron.sh"
+
+# HTTP only for `web`. The worker consumes a BullMQ queue and serves no traffic —
+# binding it here would give it a health check it can never answer and Fly would
+# cycle it forever.
+[http_service]
+  internal_port = 3000
+  force_https = true
+  processes = ["web"]
+  # The whole product is a webhook receiver. A cold start on Meta's delivery is a
+  # missed comment that only the 5-minute reconciler (FR7) recovers, minutes late.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    path = "/api/health"
+    interval = "30s"
+    timeout = "10s"
+    grace_period = "20s"
+    method = "GET"
+    # /api/health returns 503 when ANY of database/redis/queue/worker is
+    # unhealthy, so this check already fails on a dead worker even though the
+    # worker is a different process group. That is intentional: a web machine
+    # that cannot reach the queue cannot usefully accept webhooks either.
+
+# The worker is the always-on half (spec NFR1). It has no [http_service], so it
+# needs its own machine sizing and an explicit refusal to auto-stop: Fly stops
+# idle machines by default, and an idle worker is exactly the state that still
+# has a queue to drain and a heartbeat to write.
+[[vm]]
+  processes = ["web"]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+[[vm]]
+  processes = ["worker"]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+
+# The scheduler is a `sleep 30` loop calling wget. It needs almost nothing, but
+# it must not be stopped: the loop holds the "have I run today" state in shell
+# variables, so a restart re-arms the daily jobs rather than skipping them —
+# harmless — but a STOPPED cron machine means refresh-tokens never runs and every
+# automation dies quietly when the Instagram token expires.
+[[vm]]
+  processes = ["cron"]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+
+# No secrets here. Everything sensitive is a Fly secret set out of band and
+# recorded by reference only in infrastructure/fly-secrets.manifest.json in the
+# small_cap_simulator_v2 repo (spec NFR3):
+#   NEXTAUTH_SECRET  CRON_SECRET  ENCRYPTION_KEY  WEBHOOK_VERIFY_TOKEN
+#   DATABASE_URL     REDIS_URL    RESEND_API_KEY  EMAIL_FROM
+#   INSTAGRAM_APP_ID INSTAGRAM_APP_SECRET  FACEBOOK_APP_SECRET
+#
+# REDIS_URL must speak native RESP over TCP (spec NFR4). BullMQ cannot use an
+# HTTP-only Redis; Upstash reached over Fly's TCP endpoint is fine.
