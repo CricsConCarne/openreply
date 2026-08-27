@@ -24,6 +24,7 @@ readonly BACKUP_HOUR_UTC=7
 
 main() {
   installDocker
+  installAwsCli
   openHttpPorts
   createStackDirectory
   fetchRepository
@@ -37,7 +38,7 @@ installDocker() {
     return
   fi
   sudo apt-get update -y
-  sudo apt-get install -y ca-certificates curl gnupg awscli
+  sudo apt-get install -y ca-certificates curl gnupg unzip
   sudo install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
     | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -48,6 +49,23 @@ https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_C
   sudo apt-get update -y
   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   sudo usermod -aG docker "$USER"
+}
+
+# Ubuntu 24.04 dropped the `awscli` package from the archive, so apt cannot supply
+# it and `apt-get install awscli` fails the whole provision. Take it from AWS's
+# own installer instead. This is the S3 client deploy/backup.sh uses to reach
+# Cloudflare R2 — without it the backups, which are now the only copy of the
+# data, silently never run.
+installAwsCli() {
+  if command -v aws >/dev/null 2>&1; then
+    echo "[provision] aws cli already installed"
+    return
+  fi
+  local archive=/tmp/awscliv2.zip
+  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-aarch64.zip" -o "$archive"
+  unzip -q -o "$archive" -d /tmp
+  sudo /tmp/aws/install --update
+  rm -rf "$archive" /tmp/aws
 }
 
 # Trap 1 and 2 from the header. Insert above the blanket REJECT rather than
