@@ -21,6 +21,11 @@ set -euo pipefail
 readonly ENV_FILE=/opt/openreply/.env
 readonly STACK_DIR=/opt/openreply/openreply
 readonly COMPOSE_FILE="$STACK_DIR/docker-compose.prod.yml"
+# Compose interpolates ${...} in the file itself, so it needs the env file even
+# for `exec`. Without it every variable resolves to "" and compose prints a wall
+# of warnings -- harmless for exec, but the same command shape run against `up`
+# would silently deploy a stack with no secrets in it.
+readonly COMPOSE_ENV=/opt/openreply/.env
 readonly DEFAULT_RETENTION_DAYS=30
 
 main() {
@@ -62,7 +67,7 @@ dumpDatabase() {
   local stamp archive
   stamp=$(date -u '+%Y%m%dT%H%M%SZ')
   archive="/tmp/openreply-${stamp}.dump"
-  docker compose -f "$COMPOSE_FILE" exec -T postgres \
+  docker compose -f "$COMPOSE_FILE" --env-file "$COMPOSE_ENV" exec -T postgres \
     pg_dump -Fc -U "${POSTGRES_USER:-openreply}" -d "${POSTGRES_DB:-openreply}" > "$archive" \
     || fail "pg_dump failed"
   [ -s "$archive" ] || fail "pg_dump produced an empty file"
