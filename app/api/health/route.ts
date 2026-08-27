@@ -15,6 +15,44 @@ interface HealthCheck {
   detail?: string;
 }
 
+// Every check below talks to a driver that owns its own connection retry loop.
+// Prisma's `$queryRaw` and ioredis' `ping` both block for far longer than any
+// health check should when the dependency is unreachable: measured against a
+// container with DATABASE_URL and REDIS_URL pointing at closed ports, `/` still
+// answered 200 in 0.07s while this route was still open at 20s. The route had
+// already computed the correct 503 body — it simply never got to return it.
+//
+// A hang is strictly worse than a red status here, because all three consumers
+// read a timeout as "no information" rather than "dependency down": the platform
+// health check cycles a web machine that is itself fine, the alert never sees the
+// field it is written against, and the smoke gate reports a transport failure
+// instead of naming the broken dependency.
+const CHECK_TIMEOUT_MS = 5000;
+
+// Bounds one check without disturbing the others. `work` is expected to be
+// already error-safe — every checker below catches internally — so the race can
+// only settle on a value, never a rejection. The loser keeps running; that is
+// unavoidable without driver-level cancellation and harmless, since nothing
+// awaits it after the response is sent.
+async function withinDeadline<T>(work: Promise<T>, onTimeout: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(onTimeout), CHECK_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([work, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function timedOut(dependency: string): HealthCheck {
+  return {
+    status: "error",
+    detail: `${dependency} check exceeded ${CHECK_TIMEOUT_MS}ms`,
+  };
+}
+
 async function checkDatabase(): Promise<HealthCheck> {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -57,16 +95,26 @@ async function checkQueue(): Promise<HealthCheck & { counts?: unknown }> {
 }
 
 export async function GET() {
+  // Each deadline is independent, so one hung dependency cannot mask the rest:
+  // a dead Redis must still let database and worker report their real state.
   const [database, redis, queue, worker] = await Promise.all([
-    checkDatabase(),
-    checkRedis(),
-    checkQueue(),
-    getWorkerHealth().catch((error) => ({
-      healthy: false,
-      heartbeat: null,
-      ageMs: null,
-      error: error instanceof Error ? error.message : "Worker check failed",
-    })),
+    withinDeadline(checkDatabase(), timedOut("database")),
+    withinDeadline(checkRedis(), timedOut("redis")),
+    withinDeadline(checkQueue(), timedOut("queue")),
+    withinDeadline(
+      getWorkerHealth().catch((error) => ({
+        healthy: false,
+        heartbeat: null,
+        ageMs: null,
+        error: error instanceof Error ? error.message : "Worker check failed",
+      })),
+      {
+        healthy: false,
+        heartbeat: null,
+        ageMs: null,
+        error: `worker check exceeded ${CHECK_TIMEOUT_MS}ms`,
+      }
+    ),
   ]);
 
   const healthy =
