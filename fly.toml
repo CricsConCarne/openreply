@@ -85,6 +85,21 @@ primary_region = "iad"
     # unhealthy, so this check already fails on a dead worker even though the
     # worker is a different process group. That is intentional: a web machine
     # that cannot reach the queue cannot usefully accept webhooks either.
+    #
+    # KNOWN HAZARD — measured, not theorised. With Postgres and Redis
+    # unreachable, /api/health does not return its 503: it HANGS. Measured in
+    # this image: Next is ready in 194 ms and `/` answers 200 in 0.07 s, while
+    # /api/health was still open at 20 s. checkDatabase (prisma.$queryRaw) and
+    # checkRedis (ping) carry no timeout, so the route blocks on connection
+    # retries. The consequence here is that a dependency outage surfaces as a
+    # check TIMEOUT rather than a degraded body, and Fly may cycle web machines
+    # that are themselves fine.
+    #
+    # Left pointed at /api/health anyway, because the spec asks for exactly that
+    # and an app that cannot reach its queue should not take webhook traffic.
+    # The real fix is a timeout inside the route, which is application logic and
+    # therefore upstream's (NFR5 keeps this fork to config/deploy files).
+    # Tracked as ops-observability/004.
 
 # The worker is the always-on half (spec NFR1). It has no [http_service], so it
 # needs its own machine sizing and an explicit refusal to auto-stop: Fly stops
