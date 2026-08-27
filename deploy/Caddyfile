@@ -1,0 +1,21 @@
+# TLS terminator for the single-host deployment.
+#
+# APP_HOSTNAME is substituted from the environment so the hostname lives in one
+# place (/opt/openreply/.env) and cannot drift from NEXTAUTH_URL. Spec NFR6: once
+# Meta has the webhook and OAuth redirect registered against this hostname,
+# changing it silently kills webhook delivery with no error surface anywhere.
+
+{$APP_HOSTNAME} {
+	encode zstd gzip
+
+	# Meta signs webhook deliveries over the RAW body and the app verifies
+	# X-Hub-Signature-256 against it. Nothing here may rewrite the body.
+	reverse_proxy web:3000 {
+		header_up X-Forwarded-Proto https
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

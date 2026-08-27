@@ -1,0 +1,150 @@
+# OpenReply — single-host production stack.
+#
+# Everything runs on one box: the app, its worker, the cron scheduler, Postgres,
+# Redis and a TLS terminator. That is the whole point — this deployment target is
+# an always-free VM, so a managed database or a managed Redis would each cost
+# more than the machine they sit next to.
+#
+# What that buys and what it costs, stated plainly:
+#   + no recurring spend
+#   + no PgBouncer between Prisma and Postgres, so `prisma migrate deploy` and the
+#     app share one URL and the direct/pooled split the Fly deployment needed is gone
+#   - no managed backups. `deploy/backup.sh` is not optional; it is the only copy.
+#   - no managed failover. A host loss is a restore, not a promotion.
+#
+# Fork policy (spec NFR5): this file is ours. Application code stays upstream so
+# the monthly rebase is a fast-forward.
+#
+# Usage on the host:
+#   docker compose -f docker-compose.prod.yml --env-file /opt/openreply/.env up -d --build
+
+name: openreply
+
+x-app-env: &app-env
+  NODE_ENV: production
+  PORT: "3000"
+  META_GRAPH_API_VERSION: ${META_GRAPH_API_VERSION:-v25.0}
+  NEXTAUTH_URL: ${NEXTAUTH_URL}
+  NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+  CRON_SECRET: ${CRON_SECRET}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+  WEBHOOK_VERIFY_TOKEN: ${WEBHOOK_VERIFY_TOKEN}
+  DATABASE_URL: ${DATABASE_URL}
+  REDIS_URL: ${REDIS_URL}
+  RESEND_API_KEY: ${RESEND_API_KEY}
+  EMAIL_FROM: ${EMAIL_FROM}
+  INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
+  INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+  FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+
+# One build, three roles. Declared once so web/worker/cron can never drift onto
+# different images — a worker running older code than the web process fails at
+# the shape of the job payload, which is a miserable thing to debug.
+x-app-image: &app-image
+  build:
+    context: .
+    dockerfile: Dockerfile
+  image: openreply-app:local
+  restart: unless-stopped
+  depends_on:
+    postgres: {condition: service_healthy}
+    redis: {condition: service_healthy}
+
+services:
+  web:
+    <<: *app-image
+    environment: *app-env
+    command: ["npm", "run", "start"]
+    expose: ["3000"]
+    healthcheck:
+      # --spider alone follows the 200 path only; the app answers 503 when a
+      # dependency is down and wget would call that a failure either way, which
+      # is what we want here.
+      test: ["CMD", "wget", "-q", "--spider", "--timeout=10", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 40s
+
+  worker:
+    <<: *app-image
+    environment: *app-env
+    command: ["npm", "run", "worker"]
+
+  # Upstream's own scheduler, reused rather than replaced. It keeps the schedule
+  # upstream so the rebase carries changes for free, and it already knows that
+  # attach-next-reel runs every 5 minutes while the token refresh is daily.
+  # CRON_BASE_URL is left unset on purpose: cron.sh defaults to http://web:3000,
+  # which is exactly this compose network.
+  cron:
+    <<: *app-image
+    environment: *app-env
+    command: ["sh", "scripts/cron.sh"]
+    depends_on:
+      web: {condition: service_healthy}
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-openreply}
+      POSTGRES_USER: ${POSTGRES_USER:-openreply}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # Deliberately NOT published to the host. The only reachable Postgres port is
+    # inside this network; backups and psql go through `docker compose exec`.
+    expose: ["5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-openreply} -d ${POSTGRES_DB:-openreply}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # noeviction is load-bearing, not a default worth inheriting: BullMQ stores
+    # job state in Redis, so an evicting Redis silently drops queued DMs and the
+    # only symptom is "the comment arrived and no DM was sent". This is the same
+    # guarantee `fly redis create --disable-eviction` was buying.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redisdata:/data
+    expose: ["6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Terminates TLS and is the only container binding host ports. Caddy gets a real
+  # Let's Encrypt certificate over HTTP-01, which requires port 80 reachable from
+  # the internet AND the DNS record left unproxied — an orange-cloud Cloudflare
+  # record answers the challenge itself and Caddy never completes issuance.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+    environment:
+      APP_HOSTNAME: ${APP_HOSTNAME}
+    depends_on:
+      web: {condition: service_healthy}
+
+volumes:
+  pgdata:
+  redisdata:
+  caddydata:
+  caddyconfig:
