@@ -33,9 +33,22 @@ main() {
   echo "[backup] ok"
 }
 
+# Reads the keys this script needs WITHOUT sourcing the file. An env file is not
+# a shell script: values legitimately contain characters the shell would act on.
+# EMAIL_FROM carries `OpenReply <reply@...>`, and `.` reads that `<` as an input
+# redirect and dies with "syntax error near unexpected token `newline'". Sourcing
+# also means any value could execute. Docker Compose parses the same file
+# literally and correctly, so only this script was ever wrong.
 loadEnvironment() {
   [ -r "$ENV_FILE" ] || fail "cannot read $ENV_FILE"
-  set -a; . "$ENV_FILE"; set +a
+  local key value
+  while IFS='=' read -r key value; do
+    case "$key" in
+      POSTGRES_DB|POSTGRES_USER|BACKUP_S3_BUCKET|BACKUP_S3_ENDPOINT|\
+      AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|BACKUP_RETENTION_DAYS)
+        export "$key=$value" ;;
+    esac
+  done < "$ENV_FILE"
   : "${BACKUP_S3_BUCKET:?BACKUP_S3_BUCKET is required}"
   : "${BACKUP_S3_ENDPOINT:?BACKUP_S3_ENDPOINT is required}"
   : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}"
