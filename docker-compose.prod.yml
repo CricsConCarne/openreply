@@ -36,6 +36,18 @@ x-app-env: &app-env
   INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
   INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
   FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+  # Comment-reconciler tuning. Defaults here mirror the code's own fallbacks, so
+  # leaving them out of the env file changes nothing.
+  #
+  # These are listed for a reason worth stating: this block is an ALLOW-LIST, not
+  # a passthrough. There is no `env_file:` on these services, so a variable the
+  # app reads but that is missing here is silently dropped no matter what the env
+  # file says — the container simply never sees it. Adding a new tunable means
+  # adding it in BOTH places. That is the cost of the explicit list; the benefit
+  # is that this block is the readable contract of what the app actually gets.
+  COMMENT_POLL_LOOKBACK_HOURS: ${COMMENT_POLL_LOOKBACK_HOURS:-72}
+  COMMENT_POLL_MAX_PER_SWEEP: ${COMMENT_POLL_MAX_PER_SWEEP:-30}
+  COMMENT_POLL_INTERVAL_MS: ${COMMENT_POLL_INTERVAL_MS:-300000}
 
 # One build, three roles. Declared once so web/worker/cron can never drift onto
 # different images — a worker running older code than the web process fails at
