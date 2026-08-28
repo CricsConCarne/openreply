@@ -43,7 +43,14 @@ const LOOKBACK_HOURS = Number(process.env.COMMENT_POLL_LOOKBACK_HOURS ?? 72);
 // a viral post drains gradually instead of bursting into the comment API.
 const MAX_NEW_PER_SWEEP = Number(process.env.COMMENT_POLL_MAX_PER_SWEEP ?? 30);
 // For "any post" campaigns, how many recent posts to scan.
-const RECENT_MEDIA_LIMIT = 10;
+//
+// This is the OTHER half of the sweep's reach, and at a normal posting rate it is
+// usually the binding one: LOOKBACK_HOURS and this cap are ANDed, so the sweep
+// sees "comments inside the window, on the last N posts", whichever is narrower.
+// An account posting twice a day gets ~2.5 days of reach out of a 10-post cap no
+// matter how wide the hour window is set — which makes COMMENT_POLL_LOOKBACK_HOURS
+// look broken when it is merely outranked.
+const RECENT_MEDIA_LIMIT = Number(process.env.COMMENT_POLL_MEDIA_LIMIT ?? 10);
 
 interface SweepStat {
   campaign: string;

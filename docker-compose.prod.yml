@@ -48,6 +48,7 @@ x-app-env: &app-env
   COMMENT_POLL_LOOKBACK_HOURS: ${COMMENT_POLL_LOOKBACK_HOURS:-72}
   COMMENT_POLL_MAX_PER_SWEEP: ${COMMENT_POLL_MAX_PER_SWEEP:-30}
   COMMENT_POLL_INTERVAL_MS: ${COMMENT_POLL_INTERVAL_MS:-300000}
+  COMMENT_POLL_MEDIA_LIMIT: ${COMMENT_POLL_MEDIA_LIMIT:-10}
 
 # One build, three roles. Declared once so web/worker/cron can never drift onto
 # different images — a worker running older code than the web process fails at
