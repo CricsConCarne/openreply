@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
-import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
+import { getWorkspaceSocialAccount } from "@/lib/social-accounts";
 import {
   getConversations,
   sendDirectMessage,
@@ -21,7 +21,7 @@ export interface ConversationListItem {
 
 export interface ConversationsResponse {
   conversations: ConversationListItem[];
-  account: { id: string; username: string; instagramId: string };
+  account: { id: string; username: string; externalId: string };
 }
 
 // List the account's DM conversations for the inbox.
@@ -34,9 +34,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const account = await getWorkspaceInstagramAccount(
+  const account = await getWorkspaceSocialAccount(
     workspaceId,
-    request.nextUrl.searchParams.get("instagramAccountId")
+    request.nextUrl.searchParams.get("socialAccountId")
   );
   if (!account) {
     return NextResponse.json(
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
       account: {
         id: account.id,
         username: account.username,
-        instagramId: account.externalId,
+        externalId: account.externalId,
       },
     };
     return NextResponse.json({ success: true, data });
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let body: { instagramAccountId?: string; recipientId?: string; text?: string };
+  let body: { socialAccountId?: string; recipientId?: string; text?: string };
   try {
     body = await request.json();
   } catch {
@@ -121,9 +121,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const account = await getWorkspaceInstagramAccount(
+  const account = await getWorkspaceSocialAccount(
     workspaceId,
-    body.instagramAccountId ?? null
+    body.socialAccountId ?? null
   );
   if (!account) {
     return NextResponse.json(

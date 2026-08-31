@@ -26,6 +26,7 @@
  */
 
 import { prisma } from "@/lib/db/client";
+import type { SocialPlatform } from "@/app/generated/prisma/client";
 import { getDMQueue } from "@/lib/queue/client";
 import {
   getRecentMediaComments,
@@ -84,6 +85,7 @@ export async function reconcileComments(): Promise<void> {
       socialAccount: {
         select: {
           id: true,
+          platform: true,
           externalId: true,
           username: true,
           accessToken: true,
@@ -122,6 +124,7 @@ async function sweepCampaign(
     publicReplyEnabled: boolean;
     socialAccount: {
       id: string;
+      platform: SocialPlatform;
       externalId: string;
       username: string;
       accessToken: string;
@@ -238,7 +241,8 @@ async function sweepCampaign(
       // above (owner-reply + DmLog guards) and the worker is idempotent
       // (publicReplySentAt / SENT), so re-processing a comment is safe.
       await queue.add("process-comment", {
-        instagramAccountId: account.externalId,
+        externalAccountId: account.externalId,
+        platform: account.platform,
         commentId: c.id,
         commentText: c.text ?? "",
         commenterId: c.from!.id,

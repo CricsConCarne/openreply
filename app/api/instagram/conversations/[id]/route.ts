@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
-import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
+import { getWorkspaceSocialAccount } from "@/lib/social-accounts";
 import { getConversationMessages, MetaApiError } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 
@@ -30,9 +30,9 @@ export async function GET(request: NextRequest, { params }: RouteProps) {
 
   const { id: conversationId } = await params;
 
-  const account = await getWorkspaceInstagramAccount(
+  const account = await getWorkspaceSocialAccount(
     workspaceId,
-    request.nextUrl.searchParams.get("instagramAccountId")
+    request.nextUrl.searchParams.get("socialAccountId")
   );
   if (!account) {
     return NextResponse.json(

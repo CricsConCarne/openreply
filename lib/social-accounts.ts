@@ -1,14 +1,14 @@
 import { prisma } from "@/lib/db/client";
 
-export async function canConnectInstagramAccount({
+export async function canConnectSocialAccount({
   workspaceId,
-  instagramId,
+  externalId,
 }: {
   workspaceId: string;
-  instagramId: string;
+  externalId: string;
 }) {
   const existingAccount = await prisma.socialAccount.findUnique({
-    where: { platform_externalId: { platform: "INSTAGRAM", externalId: instagramId } },
+    where: { platform_externalId: { platform: "INSTAGRAM", externalId } },
     select: { workspaceId: true },
   });
 
@@ -25,13 +25,13 @@ export async function canConnectInstagramAccount({
   };
 }
 
-export async function getWorkspaceInstagramAccount(
+export async function getWorkspaceSocialAccount(
   workspaceId: string,
-  instagramAccountId?: string | null
+  socialAccountId?: string | null
 ) {
-  if (instagramAccountId && instagramAccountId !== "all") {
+  if (socialAccountId && socialAccountId !== "all") {
     return prisma.socialAccount.findFirst({
-      where: { id: instagramAccountId, workspaceId },
+      where: { id: socialAccountId, workspaceId },
     });
   }
 
@@ -40,4 +40,3 @@ export async function getWorkspaceInstagramAccount(
     orderBy: { connectedAt: "desc" },
   });
 }
-

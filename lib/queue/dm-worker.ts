@@ -190,7 +190,8 @@ async function sendRevealDirectMessage(
 
 async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
   const {
-    instagramAccountId,
+    externalAccountId,
+    platform,
     commentId,
     commentText,
     commenterId,
@@ -213,7 +214,8 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
       ],
       isActive: true,
       socialAccount: {
-        externalId: instagramAccountId,
+        platform,
+        externalId: externalAccountId,
       },
     },
     include: {
@@ -454,7 +456,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
 
     let rateLimit;
     try {
-      rateLimit = await reserveDMSlot(instagramAccountId, requeueAttempt);
+      rateLimit = await reserveDMSlot(externalAccountId, requeueAttempt);
     } catch (error) {
       await releaseWorkspaceDMReservation(
         automation.workspaceId,
@@ -522,7 +524,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           },
           {
             delay: rateLimit.requeueDelayMs,
-            jobId: `comment_${instagramAccountId}_${commentId}_retry_${requeueAttempt + 1}`,
+            jobId: `comment_${externalAccountId}_${commentId}_retry_${requeueAttempt + 1}`,
           }
         );
         continue;
@@ -687,7 +689,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
  * IGSID (same id as their comment author id), which we DM directly.
  */
 async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
-  const { instagramAccountId, userId, payload, fallback } = job.data;
+  const { externalAccountId, userId, payload, fallback } = job.data;
 
   const isFollowCheck = payload.startsWith("followcheck:");
   if (!isFollowCheck && !payload.startsWith("reveal:")) return;
@@ -709,7 +711,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
 
   if (
     !automation ||
-    automation.socialAccount.externalId !== instagramAccountId ||
+    automation.socialAccount.externalId !== externalAccountId ||
     !automation.socialAccount.accessToken
   ) {
     return;
@@ -820,7 +822,8 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
       await getDMQueue().add(
         FOLLOWUP_JOB_NAME,
         {
-          instagramAccountId: automation.socialAccount.externalId,
+          externalAccountId: automation.socialAccount.externalId,
+          platform: automation.socialAccount.platform,
           userId,
           automationId: automation.id,
           commenterName,
@@ -893,7 +896,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
  * window closed because the delay was long), it is logged, not retried forever.
  */
 async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
-  const { instagramAccountId, userId, automationId, commenterName } = job.data;
+  const { externalAccountId, userId, automationId, commenterName } = job.data;
 
   const automation = await prisma.automation.findFirst({
     where: { id: automationId, isActive: true },
@@ -904,7 +907,7 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
     !automation ||
     !automation.followUpEnabled ||
     !automation.followUpMessage?.trim() ||
-    automation.socialAccount.externalId !== instagramAccountId ||
+    automation.socialAccount.externalId !== externalAccountId ||
     !automation.socialAccount.accessToken
   ) {
     return;
@@ -944,13 +947,14 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
  * Dedup is per inbound message id, so each message triggers at most one reply.
  */
 async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
-  const { instagramAccountId, messageId, messageText, senderId } = job.data;
+  const { externalAccountId, platform, messageId, messageText, senderId } =
+    job.data;
 
   const automations = await prisma.automation.findMany({
     where: {
       dmTriggerEnabled: true,
       isActive: true,
-      socialAccount: { externalId: instagramAccountId },
+      socialAccount: { platform, externalId: externalAccountId },
     },
     include: {
       socialAccount: true,
@@ -1124,7 +1128,8 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
           await getDMQueue().add(
             FOLLOWUP_JOB_NAME,
             {
-              instagramAccountId: automation.socialAccount.externalId,
+              externalAccountId: automation.socialAccount.externalId,
+              platform: automation.socialAccount.platform,
               userId: senderId,
               automationId: automation.id,
               commenterName,
@@ -1204,15 +1209,17 @@ async function recordWorkerFailure(
   error: Error
 ) {
   try {
-    const instagramAccountId = job?.data.instagramAccountId;
+    const externalAccountId = job?.data.externalAccountId;
+    const platform = job?.data.platform;
     const commentId =
       job && "commentId" in job.data ? job.data.commentId : null;
-    const account = instagramAccountId
-      ? await prisma.socialAccount.findUnique({
-          where: { platform_externalId: { platform: "INSTAGRAM", externalId: instagramAccountId } },
-          select: { workspaceId: true },
-        })
-      : null;
+    const account =
+      externalAccountId && platform
+        ? await prisma.socialAccount.findUnique({
+            where: { platform_externalId: { platform, externalId: externalAccountId } },
+            select: { workspaceId: true },
+          })
+        : null;
 
     await prisma.operationalEvent.create({
       data: {
@@ -1223,7 +1230,7 @@ async function recordWorkerFailure(
         payload: {
           jobId: job?.id ?? null,
           attemptsMade: job?.attemptsMade ?? null,
-          instagramAccountId: instagramAccountId ?? null,
+          externalAccountId: externalAccountId ?? null,
           commentId,
         },
       },
@@ -1233,7 +1240,7 @@ async function recordWorkerFailure(
       level: "error",
       message: error.message,
       jobId: job?.id,
-      instagramAccountId,
+      externalAccountId,
       commentId: commentId ?? undefined,
     });
   } catch (recordError) {

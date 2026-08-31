@@ -15,9 +15,9 @@ vi.mock("@/lib/db/client", () => ({
 }));
 
 import {
-  canConnectInstagramAccount,
-  getWorkspaceInstagramAccount,
-} from "../lib/instagram-accounts";
+  canConnectSocialAccount,
+  getWorkspaceSocialAccount,
+} from "../lib/social-accounts";
 import {
   buildInvitationUrl,
   normalizeInvitationEmail,
@@ -34,9 +34,9 @@ describe("agency workspace helpers", () => {
     });
 
     await expect(
-      canConnectInstagramAccount({
+      canConnectSocialAccount({
         workspaceId: "workspace_123",
-        instagramId: "ig_123",
+        externalId: "ig_123",
       })
     ).resolves.toMatchObject({ allowed: true, reason: null });
   });
@@ -47,9 +47,9 @@ describe("agency workspace helpers", () => {
     });
 
     await expect(
-      canConnectInstagramAccount({
+      canConnectSocialAccount({
         workspaceId: "workspace_123",
-        instagramId: "ig_123",
+        externalId: "ig_123",
       })
     ).resolves.toMatchObject({
       allowed: false,
@@ -61,9 +61,9 @@ describe("agency workspace helpers", () => {
     mockPrisma.socialAccount.findUnique.mockResolvedValue(null);
 
     await expect(
-      canConnectInstagramAccount({
+      canConnectSocialAccount({
         workspaceId: "workspace_123",
-        instagramId: "ig_123",
+        externalId: "ig_123",
       })
     ).resolves.toMatchObject({ allowed: true, reason: null });
   });
@@ -71,12 +71,12 @@ describe("agency workspace helpers", () => {
   it("selects a requested workspace account or falls back to the latest account", async () => {
     mockPrisma.socialAccount.findFirst.mockResolvedValue({ id: "account_1" });
 
-    await getWorkspaceInstagramAccount("workspace_123", "account_1");
+    await getWorkspaceSocialAccount("workspace_123", "account_1");
     expect(mockPrisma.socialAccount.findFirst).toHaveBeenCalledWith({
       where: { id: "account_1", workspaceId: "workspace_123" },
     });
 
-    await getWorkspaceInstagramAccount("workspace_123", "all");
+    await getWorkspaceSocialAccount("workspace_123", "all");
     expect(mockPrisma.socialAccount.findFirst).toHaveBeenLastCalledWith({
       where: { workspaceId: "workspace_123" },
       orderBy: { connectedAt: "desc" },

@@ -162,7 +162,8 @@ const mockAutomation = {
 };
 
 const mockJobData = {
-  instagramAccountId: "ig_456",
+  externalAccountId: "ig_456",
+  platform: "INSTAGRAM",
   commentId: "comment_555",
   commentText: "I want the LINK!",
   commenterId: "commenter_999",
@@ -195,7 +196,8 @@ function createMockJob(data: Record<string, unknown> = mockJobData) {
 
 function createMockPostbackJob(
   data: Record<string, unknown> = {
-    instagramAccountId: "ig_456",
+    externalAccountId: "ig_456",
+    platform: "INSTAGRAM",
     userId: "commenter_999",
     payload: "reveal:auto_789",
   }
@@ -315,7 +317,7 @@ describe("DM Worker — Full Pipeline", () => {
       where: {
         OR: [{ postId: "media_101" }, { matchAnyPost: true }],
         isActive: true,
-        socialAccount: { externalId: "ig_456" },
+        socialAccount: { platform: "INSTAGRAM", externalId: "ig_456" },
       },
       include: {
         socialAccount: true,
@@ -523,7 +525,8 @@ describe("DM Worker — Full Pipeline", () => {
   it("should use 'there' when commenter name is not available", async () => {
     const processor = getProcessor();
     const jobDataWithoutName = {
-      instagramAccountId: mockJobData.instagramAccountId,
+      externalAccountId: mockJobData.externalAccountId,
+      platform: mockJobData.platform,
       commentId: mockJobData.commentId,
       commentText: mockJobData.commentText,
       commenterId: mockJobData.commenterId,
@@ -693,7 +696,7 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(
       createMockPostbackJob({
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         userId: "commenter_999",
         payload: "reveal:auto_789",
         fallback: true,
@@ -730,7 +733,7 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(
       createMockPostbackJob({
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         userId: "commenter_999",
         payload: "reveal:auto_789",
         fallback: true,
@@ -753,7 +756,7 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(
       createMockPostbackJob({
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         userId: "commenter_999",
         payload: "reveal:auto_789",
         fallback: true,
@@ -778,7 +781,7 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(
       createMockPostbackJob({
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         userId: "commenter_999",
         payload: "reveal:auto_789",
         fallback: true,
@@ -809,7 +812,7 @@ describe("DM Worker — Full Pipeline", () => {
     await expect(
       processor(
         createMockPostbackJob({
-          instagramAccountId: "ig_456",
+          externalAccountId: "ig_456",
           userId: "commenter_999",
           payload: "reveal:auto_789",
           fallback: true,
@@ -833,7 +836,7 @@ describe("DM Worker — Full Pipeline", () => {
     await expect(
       processor(
         createMockPostbackJob({
-          instagramAccountId: "ig_456",
+          externalAccountId: "ig_456",
           userId: "commenter_999",
           payload: "reveal:auto_789",
         })
@@ -941,7 +944,8 @@ describe("DM Worker — DM keyword trigger", () => {
     return {
       name: "process-message",
       data: {
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
+        platform: "INSTAGRAM",
         messageId: "mid_abc",
         messageText: "can I get the LINK?",
         senderId: "commenter_999",

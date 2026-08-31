@@ -146,12 +146,12 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 export async function sendPrivateReply(
   accessToken: string,
-  instagramAccountId: string,
+  accountId: string,
   commentId: string,
   message: string
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase()}/${accountId}/messages`,
     {
       method: "POST",
       headers: {
@@ -176,14 +176,14 @@ export async function sendPrivateReply(
  */
 export async function sendPrivateReplyWithButton(
   accessToken: string,
-  instagramAccountId: string,
+  accountId: string,
   commentId: string,
   text: string,
   buttonTitle: string,
   payload: string
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase()}/${accountId}/messages`,
     {
       method: "POST",
       headers: {
@@ -219,14 +219,14 @@ export async function sendPrivateReplyWithButton(
  */
 export async function sendDirectMessageWithButton(
   accessToken: string,
-  instagramAccountId: string,
+  accountId: string,
   userId: string,
   text: string,
   buttonTitle: string,
   payload: string
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase()}/${accountId}/messages`,
     {
       method: "POST",
       headers: {
@@ -305,13 +305,13 @@ function toWebUrlButtons(buttons: LinkButton[]) {
  */
 export async function sendPrivateReplyWithLinkButton(
   accessToken: string,
-  instagramAccountId: string,
+  accountId: string,
   commentId: string,
   text: string,
   buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase()}/${accountId}/messages`,
     {
       method: "POST",
       headers: {
@@ -343,12 +343,12 @@ export async function sendPrivateReplyWithLinkButton(
  */
 export async function sendDirectMessage(
   accessToken: string,
-  instagramAccountId: string,
+  accountId: string,
   userId: string,
   message: string
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase()}/${accountId}/messages`,
     {
       method: "POST",
       headers: {
@@ -371,13 +371,13 @@ export async function sendDirectMessage(
  */
 export async function sendDirectMessageWithLinkButton(
   accessToken: string,
-  instagramAccountId: string,
+  accountId: string,
   userId: string,
   text: string,
   buttons: LinkButton[]
 ): Promise<{ recipient_id: string; message_id: string }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/messages`,
+    `${instagramGraphBase()}/${accountId}/messages`,
     {
       method: "POST",
       headers: {
@@ -668,14 +668,14 @@ const FOLLOWER_INSIGHT_MAX_DAYS = 30;
  */
 export async function getFollowerCountSeries(
   accessToken: string,
-  instagramAccountId: string,
+  accountId: string,
   days: number = FOLLOWER_INSIGHT_MAX_DAYS
 ): Promise<FollowerCountPoint[] | null> {
   const span = Math.min(Math.max(days, 1), FOLLOWER_INSIGHT_MAX_DAYS);
   const until = Math.floor(Date.now() / 1000);
   const since = until - (span - 1) * 86_400;
 
-  const url = new URL(`${instagramGraphBase()}/${instagramAccountId}/insights`);
+  const url = new URL(`${instagramGraphBase()}/${accountId}/insights`);
   url.searchParams.set("metric", "follower_count");
   url.searchParams.set("period", "day");
   url.searchParams.set("since", String(since));
@@ -745,11 +745,11 @@ export async function refreshLongLivedToken(
 }
 
 export async function subscribeInstagramAccountToWebhooks(
-  instagramAccountId: string,
+  accountId: string,
   accessToken: string
 ): Promise<{ success: boolean }> {
   const response = await fetch(
-    `${instagramGraphBase()}/${instagramAccountId}/subscribed_apps`,
+    `${instagramGraphBase()}/${accountId}/subscribed_apps`,
     {
       method: "POST",
       headers: {

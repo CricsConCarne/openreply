@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { getBaseUrl } from "@/lib/env";
-import { canConnectInstagramAccount } from "@/lib/instagram-accounts";
+import { canConnectSocialAccount } from "@/lib/social-accounts";
 import { getLongLivedToken, getUserInfo, subscribeInstagramAccountToWebhooks } from "@/lib/meta/client";
 import {
   encryptToken,
@@ -54,10 +54,10 @@ export async function GET(request: NextRequest) {
     // (user_id), not the app-scoped `id`. Store user_id so comment webhooks
     // can be matched back to this account. Fall back to id if user_id is
     // ever absent.
-    const instagramId = userInfo.user_id ?? userInfo.id;
-    const connection = await canConnectInstagramAccount({
+    const externalId = userInfo.user_id ?? userInfo.id;
+    const connection = await canConnectSocialAccount({
       workspaceId: state.workspaceId,
-      instagramId,
+      externalId,
     });
 
     if (!connection.allowed) {
@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
     let webhookSubscribed = false;
     try {
       const subscription = await subscribeInstagramAccountToWebhooks(
-        instagramId,
+        externalId,
         longLivedToken
       );
       webhookSubscribed = Boolean(subscription.success);
@@ -84,10 +84,10 @@ export async function GET(request: NextRequest) {
     }
 
     await prisma.socialAccount.upsert({
-      where: { platform_externalId: { platform: "INSTAGRAM", externalId: instagramId } },
+      where: { platform_externalId: { platform: "INSTAGRAM", externalId } },
       create: {
         workspaceId: state.workspaceId,
-        externalId: instagramId,
+        externalId,
         username: userInfo.username,
         name: userInfo.name,
         accessToken: encryptedToken,

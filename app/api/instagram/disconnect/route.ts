@@ -22,13 +22,13 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const instagramAccountId =
-    typeof body.instagramAccountId === "string" ? body.instagramAccountId : null;
+  const socialAccountId =
+    typeof body.socialAccountId === "string" ? body.socialAccountId : null;
 
   await prisma.socialAccount.deleteMany({
     where: {
       workspaceId: context.workspaceId,
-      ...(instagramAccountId ? { id: instagramAccountId } : {}),
+      ...(socialAccountId ? { id: socialAccountId } : {}),
     },
   });
 

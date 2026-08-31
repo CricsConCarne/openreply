@@ -26,7 +26,7 @@ interface InstagramPost {
 
 interface PostPickerProps {
   selectedPostId: string | null;
-  instagramAccountId?: string | null;
+  socialAccountId?: string | null;
   /** postId -> name of the campaign already using it. Flagged in the grid. */
   usedPostIds?: Record<string, string>;
   onSelect: (
@@ -39,7 +39,7 @@ interface PostPickerProps {
 
 export default function PostPicker({
   selectedPostId,
-  instagramAccountId,
+  socialAccountId,
   usedPostIds,
   onSelect,
 }: PostPickerProps) {
@@ -57,15 +57,15 @@ export default function PostPicker({
   useEffect(() => {
     let cancelled = false;
     const params = new URLSearchParams();
-    if (instagramAccountId) {
-      params.set("instagramAccountId", instagramAccountId);
+    if (socialAccountId) {
+      params.set("socialAccountId", socialAccountId);
     }
     // Load the full library so older posts/reels are selectable, not just the
     // most recent page.
     params.set("all", "true");
 
     // Show the cached library instantly (stale-while-revalidate), then refresh.
-    const cacheKey = `ig-posts:${instagramAccountId ?? "default"}`;
+    const cacheKey = `ig-posts:${socialAccountId ?? "default"}`;
     const cached = readCache<InstagramPost[]>(cacheKey, 15 * 60 * 1000);
     // Hydrating state from cache is a legitimate effect use here.
     /* eslint-disable react-hooks/set-state-in-effect */
@@ -96,7 +96,7 @@ export default function PostPicker({
     return () => {
       cancelled = true;
     };
-  }, [instagramAccountId]);
+  }, [socialAccountId]);
 
   if (loading) {
     return (

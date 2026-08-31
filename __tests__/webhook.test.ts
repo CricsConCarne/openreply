@@ -90,7 +90,7 @@ describe("parseCommentEvents", () => {
     const events = parseCommentEvents(payload);
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
-      instagramAccountId: "page_123",
+      externalAccountId: "page_123",
       commentId: "comment_456",
       commentText: "I want the LINK!",
       commenterId: "user_789",
@@ -370,7 +370,7 @@ describe("parseMessageEvents", () => {
 
     expect(parseMessageEvents(payload)).toEqual([
       {
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         messageId: "mid_abc",
         messageText: "send me the LINK please",
         senderId: "user_999",
@@ -487,7 +487,7 @@ describe("parseReadEvents", () => {
 
     expect(parseReadEvents(payload)).toEqual([
       {
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         userId: "commenter_999",
         watermark: 1770000000000,
       },

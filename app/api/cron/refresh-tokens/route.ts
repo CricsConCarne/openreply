@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   });
 
   const results: Array<{
-    instagramAccountId: string;
+    socialAccountId: string;
     username: string;
     status: "refreshed" | "failed";
     error?: string;
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
       });
 
       results.push({
-        instagramAccountId: account.id,
+        socialAccountId: account.id,
         username: account.username,
         status: "refreshed",
       });
@@ -82,14 +82,14 @@ export async function GET(request: NextRequest) {
           level: "ERROR",
           message: `Token refresh failed for @${account.username}: ${errorMessage}`,
           payload: {
-            instagramAccountId: account.id,
+            socialAccountId: account.id,
             username: account.username,
           },
         },
       });
 
       results.push({
-        instagramAccountId: account.id,
+        socialAccountId: account.id,
         username: account.username,
         status: "failed",
         error: errorMessage,

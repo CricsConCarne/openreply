@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
-import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
+import { getWorkspaceSocialAccount } from "@/lib/social-accounts";
 import {
   getAllUserMedia,
   getMediaInsights,
@@ -105,9 +105,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const account = await getWorkspaceInstagramAccount(
+  const account = await getWorkspaceSocialAccount(
     workspaceId,
-    request.nextUrl.searchParams.get("instagramAccountId")
+    request.nextUrl.searchParams.get("socialAccountId")
   );
 
   if (!account) {
@@ -223,7 +223,7 @@ export async function GET(request: NextRequest) {
     let followerHistory: FollowerHistoryPoint[] = [];
     try {
       followers = await ensureFollowerHistory(
-        { id: account.id, instagramId: account.externalId },
+        { id: account.id, externalId: account.externalId },
         accessToken
       );
       followerHistory = await getFollowerHistory(account.id);

@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
     Math.max(1, Number.parseInt(searchParams.get("limit") ?? "20", 10))
   );
   const status = searchParams.get("status");
-  const instagramAccountId = searchParams.get("instagramAccountId");
+  const socialAccountId = searchParams.get("socialAccountId");
   const skip = (page - 1) * limit;
   const parsedStatus =
     status && Object.values(DmStatus).includes(status as DmStatus)
@@ -29,8 +29,8 @@ export async function GET(request: NextRequest) {
   const where = {
     workspaceId,
     ...(parsedStatus ? { status: parsedStatus } : {}),
-    ...(instagramAccountId && instagramAccountId !== "all"
-      ? { socialAccountId: instagramAccountId }
+    ...(socialAccountId && socialAccountId !== "all"
+      ? { socialAccountId }
       : {}),
   };
 

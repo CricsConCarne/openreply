@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/db/client";
-import { getWorkspaceInstagramAccount } from "@/lib/instagram-accounts";
+import { getWorkspaceSocialAccount } from "@/lib/social-accounts";
 import { generateReportShareSlug } from "@/lib/reports/share";
 import { generateTrackedLinkSlug } from "@/lib/tracking/server";
 import {
@@ -23,7 +23,7 @@ const campaignSchema = z.object({
 });
 
 const importSchema = z.object({
-  instagramAccountId: z.string().min(1),
+  socialAccountId: z.string().min(1),
   campaigns: z.array(campaignSchema).min(1).max(200),
 });
 
@@ -51,9 +51,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const account = await getWorkspaceInstagramAccount(
+  const account = await getWorkspaceSocialAccount(
     context.workspaceId,
-    parsed.data.instagramAccountId
+    parsed.data.socialAccountId
   );
   if (!account) {
     return NextResponse.json(

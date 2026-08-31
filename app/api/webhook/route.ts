@@ -9,7 +9,7 @@ import {
   verifyWebhookSignature,
 } from "@/lib/meta/webhook";
 import { MESSAGE_JOB_NAME, POSTBACK_JOB_NAME } from "@/lib/queue/client";
-import { Prisma } from "@/app/generated/prisma/client";
+import { Prisma, SocialPlatform } from "@/app/generated/prisma/client";
 
 const OPENING_DM_READ_FALLBACK_DELAY_MS = 5 * 60 * 1000;
 
@@ -86,14 +86,15 @@ export async function POST(request: NextRequest) {
 
     for (const event of commentEvents) {
       const account = await prisma.socialAccount.findUnique({
-        where: { platform_externalId: { platform: "INSTAGRAM", externalId: event.instagramAccountId } },
+        where: { platform_externalId: { platform: "INSTAGRAM", externalId: event.externalAccountId } },
         select: { workspaceId: true },
       });
 
       await queue.add(
         "process-comment",
         {
-          instagramAccountId: event.instagramAccountId,
+          externalAccountId: event.externalAccountId,
+          platform: SocialPlatform.INSTAGRAM,
           commentId: event.commentId,
           commentText: event.commentText,
           commenterId: event.commenterId,
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
           source: "WEBHOOK",
         },
         {
-          jobId: `comment_${event.instagramAccountId}_${event.commentId}`,
+          jobId: `comment_${event.externalAccountId}_${event.commentId}`,
         }
       );
 
@@ -124,7 +125,8 @@ export async function POST(request: NextRequest) {
       await queue.add(
         POSTBACK_JOB_NAME,
         {
-          instagramAccountId: event.instagramAccountId,
+          externalAccountId: event.externalAccountId,
+          platform: SocialPlatform.INSTAGRAM,
           userId: event.userId,
           payload: event.payload,
           mid: event.mid,
@@ -132,7 +134,7 @@ export async function POST(request: NextRequest) {
         {
           // BullMQ forbids ":" in custom job ids, and the payload is
           // "reveal:<id>", so build with underscores and strip any colons.
-          jobId: `postback_${event.instagramAccountId}_${event.userId}_${(
+          jobId: `postback_${event.externalAccountId}_${event.userId}_${(
             event.mid ?? event.payload
           ).replace(/:/g, "_")}`,
         }
@@ -146,14 +148,15 @@ export async function POST(request: NextRequest) {
 
     for (const event of messageEvents) {
       const account = await prisma.socialAccount.findUnique({
-        where: { platform_externalId: { platform: "INSTAGRAM", externalId: event.instagramAccountId } },
+        where: { platform_externalId: { platform: "INSTAGRAM", externalId: event.externalAccountId } },
         select: { workspaceId: true },
       });
 
       await queue.add(
         MESSAGE_JOB_NAME,
         {
-          instagramAccountId: event.instagramAccountId,
+          externalAccountId: event.externalAccountId,
+          platform: SocialPlatform.INSTAGRAM,
           messageId: event.messageId,
           messageText: event.messageText,
           senderId: event.senderId,
@@ -163,7 +166,7 @@ export async function POST(request: NextRequest) {
           // in particular). base64url encodes into exactly the allowed alphabet
           // and stays injective — substituting invalid characters would let two
           // distinct mids collapse onto one job id, silently dropping a reply.
-          jobId: `message_${event.instagramAccountId}_${Buffer.from(
+          jobId: `message_${event.externalAccountId}_${Buffer.from(
             event.messageId
           ).toString("base64url")}`,
         }
@@ -193,7 +196,7 @@ export async function POST(request: NextRequest) {
             isActive: true,
             openingDmEnabled: true,
             socialAccount: {
-              externalId: event.instagramAccountId,
+              externalId: event.externalAccountId,
             },
           },
         },
@@ -215,14 +218,15 @@ export async function POST(request: NextRequest) {
         await queue.add(
           POSTBACK_JOB_NAME,
           {
-            instagramAccountId: event.instagramAccountId,
+            externalAccountId: event.externalAccountId,
+            platform: SocialPlatform.INSTAGRAM,
             userId: event.userId,
             payload: `reveal:${automation.id}`,
             fallback: true,
           },
           {
             delay: OPENING_DM_READ_FALLBACK_DELAY_MS,
-            jobId: `read_fallback_${event.instagramAccountId}_${event.userId}_${automation.id}`,
+            jobId: `read_fallback_${event.externalAccountId}_${event.userId}_${automation.id}`,
           }
         );
       }
