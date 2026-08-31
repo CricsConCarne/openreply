@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { SocialPlatform } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/db/client";
+import { resolveChannel } from "@/lib/channels";
 import { decryptToken, encryptToken } from "@/lib/meta/oauth";
-import { refreshLongLivedToken } from "@/lib/meta/client";
 
 const DAYS_BEFORE_EXPIRY = 10;
 
@@ -29,8 +30,13 @@ export async function GET(request: NextRequest) {
     },
   });
 
+  // Only Instagram tokens expire and need refreshing. Facebook page tokens are
+  // long-lived with a null `tokenExpiresAt`, so the expiry predicate alone would
+  // already exclude them — the explicit platform filter makes that intent
+  // provable rather than incidental.
   const accountsToRefresh = await prisma.socialAccount.findMany({
     where: {
+      platform: SocialPlatform.INSTAGRAM,
       accessToken: { not: "" },
       tokenExpiresAt: {
         not: null,
@@ -41,6 +47,7 @@ export async function GET(request: NextRequest) {
       id: true,
       workspaceId: true,
       username: true,
+      platform: true,
       accessToken: true,
     },
   });
@@ -55,10 +62,13 @@ export async function GET(request: NextRequest) {
   for (const account of accountsToRefresh) {
     try {
       const currentToken = decryptToken(account.accessToken);
-      const { accessToken: newToken, expiresIn } =
-        await refreshLongLivedToken(currentToken);
-      const encryptedToken = encryptToken(newToken);
-      const newExpiry = new Date(Date.now() + expiresIn * 1000);
+      const provider = resolveChannel(account.platform);
+      const refreshed = await provider.refreshToken({ token: currentToken });
+      // null = the platform has no token to refresh; the query only selects
+      // Instagram, so this is a defensive no-op that never fires today.
+      if (!refreshed) continue;
+      const encryptedToken = encryptToken(refreshed.accessToken);
+      const newExpiry = new Date(Date.now() + refreshed.expiresIn * 1000);
 
       await prisma.socialAccount.update({
         where: { id: account.id },

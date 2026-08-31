@@ -11,9 +11,10 @@
  * both are true:
  *   1. the comment matches the campaign keyword, and
  *   2. the account owner has not already replied to it.
- * The reply check reads the comment's actual replies on Instagram, so a comment
- * you (or the tool) already answered is skipped — the poll never re-touches
- * handled comments. Each sweep is capped so it can never flood the comment API
+ * The reply check consumes the channel provider's normalized `ownerReplied`
+ * flag, so a comment you (or the tool) already answered is skipped — the poll
+ * never re-touches handled comments, and the sweep never inspects raw Graph
+ * reply edges. Each sweep is capped so it can never flood the comment API
  * (which Instagram rate-limits aggressively, error 368).
  *
  * It runs on an interval in the worker process because Vercel's free crons only
@@ -28,12 +29,9 @@
 import { prisma } from "@/lib/db/client";
 import type { SocialPlatform } from "@/app/generated/prisma/client";
 import { getDMQueue } from "@/lib/queue/client";
-import {
-  getRecentMediaComments,
-  getUserMedia,
-  MetaApiError,
-  type InstagramComment,
-} from "@/lib/meta/client";
+import { resolveChannel } from "@/lib/channels";
+import type { ChannelComment } from "@/lib/channels";
+import { MetaApiError } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 
@@ -134,6 +132,7 @@ async function sweepCampaign(
   tokenCache: Map<string, string | null>
 ): Promise<SweepStat> {
   const account = automation.socialAccount;
+  const provider = resolveChannel(account.platform);
   const stat: SweepStat = {
     campaign: automation.name,
     keywords: automation.matchAnyWord
@@ -167,8 +166,11 @@ async function sweepCampaign(
     mediaIds.push(automation.postId);
   } else if (automation.matchAnyPost) {
     try {
-      const media = await getUserMedia(accessToken, RECENT_MEDIA_LIMIT);
-      mediaIds.push(...media.map((m) => m.id));
+      const posts = await provider.listPosts({
+        accessToken,
+        max: RECENT_MEDIA_LIMIT,
+      });
+      mediaIds.push(...posts.map((p) => p.id));
     } catch (error) {
       stat.errors.push(`Media list: ${errMessage(error)}`);
     }
@@ -178,9 +180,14 @@ async function sweepCampaign(
   const queue = getDMQueue();
 
   for (const mediaId of mediaIds) {
-    let comments: InstagramComment[];
+    let comments: ChannelComment[];
     try {
-      comments = await getRecentMediaComments(accessToken, mediaId, sinceMs);
+      comments = await provider.getRecentComments({
+        accessToken,
+        mediaId,
+        sinceMs,
+        ownerId: account.externalId,
+      });
     } catch (error) {
       stat.errors.push(`Comments ${mediaId}: ${errMessage(error)}`);
       continue;
@@ -189,8 +196,7 @@ async function sweepCampaign(
     // Keep only comments that (a) aren't the account's own, (b) match the
     // keyword, and (c) have no reply from the account owner yet.
     const needsAction = comments.filter((c) => {
-      const authorId = c.from?.id;
-      if (!authorId || authorId === account.externalId) return false;
+      if (!c.authorId || c.authorId === account.externalId) return false;
 
       const matched = automation.matchAnyWord
         ? true
@@ -199,10 +205,7 @@ async function sweepCampaign(
       if (!matched) return false;
       stat.matched += 1;
 
-      const ownerReplied = (c.replies?.data ?? []).some(
-        (r) => r.from?.id === account.externalId
-      );
-      if (ownerReplied) {
+      if (c.ownerReplied) {
         stat.alreadyReplied += 1;
         return false;
       }
@@ -245,8 +248,8 @@ async function sweepCampaign(
         platform: account.platform,
         commentId: c.id,
         commentText: c.text ?? "",
-        commenterId: c.from!.id,
-        commenterName: c.from?.username,
+        commenterId: c.authorId,
+        commenterName: c.authorName,
         mediaId,
         source: "POLLING",
       });

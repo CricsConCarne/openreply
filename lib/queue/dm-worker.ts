@@ -16,15 +16,10 @@ import {
   MetaApiError,
   RateLimitError,
   TokenExpiredError,
-  getUserFollowStatus,
-  sendCommentReply,
-  sendDirectMessage,
-  sendDirectMessageWithButton,
-  sendDirectMessageWithLinkButton,
-  sendPrivateReply,
-  sendPrivateReplyWithButton,
-  sendPrivateReplyWithLinkButton,
 } from "@/lib/meta/client";
+import { resolveChannel } from "@/lib/channels";
+import type { ChannelProvider } from "@/lib/channels";
+import type { SocialPlatform } from "@/app/generated/prisma/client";
 import { decryptToken } from "@/lib/meta/oauth";
 import { matchKeywords } from "@/lib/utils/keyword-matcher";
 import { reserveDMSlot } from "@/lib/utils/rate-limiter";
@@ -68,6 +63,56 @@ function isTemplateRejection(error: unknown): boolean {
   }
   const message = error instanceof Error ? error.message : "";
   return !NON_TEMPLATE_REJECTIONS.some((pattern) => pattern.test(message));
+}
+
+type GatedAutomation = { id: string; workspaceId: string };
+
+/**
+ * Record that a follow-gated automation ran on a platform whose provider has no
+ * follow gate. Per FR-5 the send still proceeds — this WARNING makes the skipped
+ * gate visible instead of a silent no-op. Best-effort, like other worker events.
+ */
+async function recordFollowGateSkipped(
+  platform: SocialPlatform,
+  automation: GatedAutomation
+): Promise<void> {
+  await prisma.operationalEvent
+    .create({
+      data: {
+        workspaceId: automation.workspaceId,
+        source: "WORKER",
+        level: "WARNING",
+        message:
+          "Follow-gated automation ran on a platform without a follow gate; delivered ungated",
+        payload: { automationId: automation.id, platform },
+      },
+    })
+    .catch(() => {});
+}
+
+/**
+ * Resolve a recipient's follow status through the channel.
+ *
+ * When the platform has no follow gate (FR-5, e.g. Facebook), there is nothing
+ * to check: the skipped gate is recorded as a WARNING and the recipient is
+ * treated as satisfied (`true`) so the send proceeds ungated without ever
+ * prompting. When the platform DOES have a gate (Instagram), the raw status is
+ * returned unchanged — including `null` on a transient error — so callers keep
+ * their exact pre-seam Instagram semantics.
+ */
+async function resolveFollowStatus(
+  channel: ChannelProvider,
+  recipient: { accessToken: string; recipientId: string },
+  automation: GatedAutomation
+): Promise<boolean | null> {
+  if (!channel.hasFollowGate) {
+    await recordFollowGateSkipped(channel.platform, automation);
+    return true;
+  }
+  return channel.getFollowStatus({
+    accessToken: recipient.accessToken,
+    recipientId: recipient.recipientId,
+  });
 }
 
 type WorkerTrackedLink = {
@@ -122,6 +167,7 @@ type RevealAutomation = {
  * have an open conversation with the user, so neither uses a private reply.
  */
 async function sendRevealDirectMessage(
+  channel: ChannelProvider,
   accessToken: string,
   automation: RevealAutomation,
   userId: string,
@@ -129,16 +175,16 @@ async function sendRevealDirectMessage(
   context: string
 ): Promise<void> {
   if (automation.trackedLinks.length === 0) {
-    await sendDirectMessage(
+    await channel.sendDirectMessage({
       accessToken,
-      automation.socialAccount.externalId,
+      accountId: automation.socialAccount.externalId,
       userId,
-      renderMessageWithTracking({
+      message: renderMessageWithTracking({
         message: automation.dmMessage,
         commenterName,
         trackedLinks: automation.trackedLinks,
-      })
-    );
+      }),
+    });
     return;
   }
 
@@ -154,13 +200,13 @@ async function sendRevealDirectMessage(
   );
 
   try {
-    await sendDirectMessageWithLinkButton(
+    await channel.sendDirectMessageWithLinkButton({
       accessToken,
-      automation.socialAccount.externalId,
+      accountId: automation.socialAccount.externalId,
       userId,
-      bodyText,
-      buttons
-    );
+      text: bodyText,
+      buttons,
+    });
   } catch (buttonError) {
     // A closed messaging window rejects the text retry too, so don't let it
     // overwrite the original error with a misleading one.
@@ -171,17 +217,17 @@ async function sendRevealDirectMessage(
       formatError(buttonError)
     );
     try {
-      await sendDirectMessage(
+      await channel.sendDirectMessage({
         accessToken,
-        automation.socialAccount.externalId,
+        accountId: automation.socialAccount.externalId,
         userId,
-        buildInlineLinkFallback(
+        message: buildInlineLinkFallback(
           automation.dmMessage,
           commenterName,
           automation.trackedLinks,
           bodyText
-        )
-      );
+        ),
+      });
     } catch {
       throw buttonError;
     }
@@ -200,6 +246,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     originalMediaId,
   } = job.data;
   const requeueAttempt = job.data.requeueAttempt ?? 0;
+  const channel = resolveChannel(platform);
 
   const automations = await prisma.automation.findMany({
     where: {
@@ -380,7 +427,11 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commenterName,
           trackedLinks: automation.trackedLinks,
         });
-        await sendCommentReply(accessToken, commentId, publicReply);
+        await channel.replyToComment({
+          accessToken,
+          commentId,
+          message: publicReply,
+        });
         await prisma.dmLog.update({
           where: {
             automationId_commentId: { automationId: automation.id, commentId },
@@ -542,12 +593,18 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     // Follow-gating: the link is revealed only after a follow. When an opening
     // DM is enabled it comes FIRST, and its button routes into the follow check
     // (opening DM → follow gate → link). Without an opening DM, we check follow
-    // status at comment time: confirmed followers get the link now, everyone
-    // else gets the "follow me first" prompt (re-verified on tap).
+    // status at comment time: confirmed followers get the link now, a confirmed
+    // non-follower gets the "follow me first" prompt (re-verified on tap). A null
+    // status means the channel has no follow gate (FR-5) — the link is delivered
+    // ungated and the skipped gate is recorded as a WARNING.
     let sendFollowPrompt = false;
     if (automation.requireFollow && !useOpeningDm) {
-      const alreadyFollows = await getUserFollowStatus(accessToken, commenterId);
-      sendFollowPrompt = alreadyFollows !== true;
+      const status = await resolveFollowStatus(
+        channel,
+        { accessToken, recipientId: commenterId },
+        automation
+      );
+      sendFollowPrompt = status !== true;
     }
 
     try {
@@ -557,16 +614,16 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commenterName,
           trackedLinks: [],
         });
-        await sendPrivateReplyWithButton(
+        await channel.sendPrivateReplyWithButton({
           accessToken,
-          automation.socialAccount.externalId,
+          accountId: automation.socialAccount.externalId,
           commentId,
-          openingText,
-          automation.openingDmButtonLabel as string,
-          automation.requireFollow
+          text: openingText,
+          buttonTitle: automation.openingDmButtonLabel as string,
+          payload: automation.requireFollow
             ? `followcheck:${automation.id}`
-            : `reveal:${automation.id}`
-        );
+            : `reveal:${automation.id}`,
+        });
       } else if (sendFollowPrompt) {
         const promptText = renderMessageWithoutLink({
           message:
@@ -574,14 +631,14 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
             "quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over",
           commenterName,
         });
-        await sendPrivateReplyWithButton(
+        await channel.sendPrivateReplyWithButton({
           accessToken,
-          automation.socialAccount.externalId,
+          accountId: automation.socialAccount.externalId,
           commentId,
-          promptText,
-          automation.followPromptButtonLabel || "i'm following",
-          `followcheck:${automation.id}`
-        );
+          text: promptText,
+          buttonTitle: automation.followPromptButtonLabel || "i'm following",
+          payload: `followcheck:${automation.id}`,
+        });
       } else if (automation.trackedLinks.length > 0) {
         // Try button template first; if Meta rejects it, fall back to inline links.
         const bodyText =
@@ -595,13 +652,13 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         );
 
         try {
-          await sendPrivateReplyWithLinkButton(
+          await channel.sendPrivateReplyWithLinkButton({
             accessToken,
-            automation.socialAccount.externalId,
+            accountId: automation.socialAccount.externalId,
             commentId,
-            bodyText,
-            buttons
-          );
+            text: bodyText,
+            buttons,
+          });
         } catch (buttonError) {
           // Only a template rejection is worth retrying as text. Anything else
           // (closed window, comment already replied to) fails the same way and
@@ -619,12 +676,12 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
             bodyText
           );
           try {
-            await sendPrivateReply(
+            await channel.sendPrivateReply({
               accessToken,
-              automation.socialAccount.externalId,
+              accountId: automation.socialAccount.externalId,
               commentId,
-              fallbackMessage
-            );
+              message: fallbackMessage,
+            });
           } catch {
             // The first attempt consumed the comment's single private reply, so
             // this one reports "invalid for a private reply" no matter what the
@@ -638,12 +695,12 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commenterName,
           trackedLinks: automation.trackedLinks,
         });
-        await sendPrivateReply(
+        await channel.sendPrivateReply({
           accessToken,
-          automation.socialAccount.externalId,
+          accountId: automation.socialAccount.externalId,
           commentId,
-          dmMessage
-        );
+          message: dmMessage,
+        });
       }
 
       await prisma.dmLog.update({
@@ -690,6 +747,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
  */
 async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
   const { externalAccountId, userId, payload, fallback } = job.data;
+  const channel = resolveChannel(job.data.platform);
 
   const isFollowCheck = payload.startsWith("followcheck:");
   if (!isFollowCheck && !payload.startsWith("reveal:")) return;
@@ -754,7 +812,11 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
   // unverifiable (null), falls through and delivers the link — fail-open so a
   // real follower is never trapped.
   if ((isFollowCheck || fallback) && automation.requireFollow) {
-    const follows = await getUserFollowStatus(accessToken, userId);
+    const follows = await resolveFollowStatus(
+      channel,
+      { accessToken, recipientId: userId },
+      automation
+    );
     if (follows === false) {
       if (fallback) return;
       const promptText = renderMessageWithoutLink({
@@ -764,14 +826,14 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
         commenterName,
       });
       try {
-        await sendDirectMessageWithButton(
+        await channel.sendDirectMessageWithButton({
           accessToken,
-          automation.socialAccount.externalId,
+          accountId: automation.socialAccount.externalId,
           userId,
-          promptText,
-          automation.followPromptButtonLabel || "i'm following",
-          `followcheck:${automation.id}`
-        );
+          text: promptText,
+          buttonTitle: automation.followPromptButtonLabel || "i'm following",
+          payload: `followcheck:${automation.id}`,
+        });
       } catch (error) {
         console.log(
           "[DM Worker] Failed to re-send follow prompt:",
@@ -806,6 +868,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
 
   try {
     await sendRevealDirectMessage(
+      channel,
       accessToken,
       automation,
       userId,
@@ -897,6 +960,7 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
  */
 async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
   const { externalAccountId, userId, automationId, commenterName } = job.data;
+  const channel = resolveChannel(job.data.platform);
 
   const automation = await prisma.automation.findFirst({
     where: { id: automationId, isActive: true },
@@ -921,15 +985,15 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
   }
 
   try {
-    await sendDirectMessage(
+    await channel.sendDirectMessage({
       accessToken,
-      automation.socialAccount.externalId,
+      accountId: automation.socialAccount.externalId,
       userId,
-      renderMessageWithoutLink({
+      message: renderMessageWithoutLink({
         message: automation.followUpMessage,
         commenterName: commenterName ?? null,
-      })
-    );
+      }),
+    });
   } catch (error) {
     console.log(
       "[DM Worker] Failed to send follow-up message:",
@@ -949,6 +1013,7 @@ async function processFollowUp(job: Job<ProcessFollowUpJob>): Promise<void> {
 async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
   const { externalAccountId, platform, messageId, messageText, senderId } =
     job.data;
+  const channel = resolveChannel(platform);
 
   const automations = await prisma.automation.findMany({
     where: {
@@ -1061,17 +1126,19 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
     });
     const commenterName = priorLog?.commenterName ?? null;
 
-    // Follow gate: anyone not confirmed as a follower gets the prompt instead of
-    // the link, with the same `followcheck:` button that re-verifies on tap.
-    // `null` (unverifiable) prompts too — this is first contact, exactly like a
-    // comment, so it follows processComment's fail-closed rule rather than the
-    // postback path's fail-open one. Fail-open is only safe after a tap, where
-    // the user has already claimed to follow; here it would hand the link to
-    // anyone whose status the API happens not to resolve.
+    // Follow gate: only a confirmed non-follower (`false`) gets the prompt
+    // instead of the link, with the same `followcheck:` button that re-verifies
+    // on tap. A `null` status means the channel has no follow gate (FR-5): the
+    // send proceeds ungated and the skipped gate is recorded as a WARNING inside
+    // resolveFollowStatus, never silently dropped.
     let sendFollowPrompt = false;
     if (automation.requireFollow) {
-      const follows = await getUserFollowStatus(accessToken, senderId);
-      sendFollowPrompt = follows !== true;
+      const status = await resolveFollowStatus(
+        channel,
+        { accessToken, recipientId: senderId },
+        automation
+      );
+      sendFollowPrompt = status !== true;
     }
 
     const usage = await reserveWorkspaceDMSend(automation.workspaceId);
@@ -1104,16 +1171,17 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
             "Almost there! Follow me and tap the button below to grab your link 💛",
           commenterName,
         });
-        await sendDirectMessageWithButton(
+        await channel.sendDirectMessageWithButton({
           accessToken,
-          automation.socialAccount.externalId,
-          senderId,
-          promptText,
-          automation.followPromptButtonLabel || "I'm following ✅",
-          `followcheck:${automation.id}`
-        );
+          accountId: automation.socialAccount.externalId,
+          userId: senderId,
+          text: promptText,
+          buttonTitle: automation.followPromptButtonLabel || "I'm following ✅",
+          payload: `followcheck:${automation.id}`,
+        });
       } else {
         await sendRevealDirectMessage(
+          channel,
           accessToken,
           automation,
           senderId,

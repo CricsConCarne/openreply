@@ -1,0 +1,400 @@
+{
+  "title": "Facebook Channel (Auto-DM + Comment Support)",
+  "overview": "Add Facebook Pages as a second channel in openreply behind a channel-provider seam: generalize InstagramAccount to SocialAccount with a platform enum, introduce a ChannelProvider contract (Instagram provider delegates to the existing lib/meta/client.ts; Facebook provider is new code against graph.facebook.com), dispatch webhooks by object with a hard noise filter on page/feed events, add FB Login for Business OAuth with a Page picker, and make the UI platform-aware (follow gate is Instagram-only and must degrade visibly). Standard Access only — no App Review; own Pages run under App Roles exactly like the current Instagram tester setup. ~2 weeks eng, 7 epics, 21 stories, 75 points.",
+  "objectives": {
+    "primary": [
+      "Connect a Facebook Page and run comment→DM automations with parity for every capability FB supports (private reply plain/button/link-button, reveal on postback, read fallback, public reply, DM keyword trigger, follow-up, tracking, billing)",
+      "Zero Instagram regression — existing suite green at every story boundary",
+      "One pipeline: worker/matcher/rate-limiter/dedup/billing untouched; platform resolved once through a provider seam, never branched inside flow bodies"
+    ],
+    "secondary": [
+      "Simpler FB token lifecycle (Page tokens never expire; refresh cron becomes IG-only)",
+      "Follower-chart parity via fan_count snapshots",
+      "Self-hoster docs for the no-App-Review Facebook path"
+    ]
+  },
+  "epics": [
+    {
+      "name": "platform-foundation — schema + naming generalization",
+      "slug": "platform-foundation",
+      "description": "Data-preserving rename of InstagramAccount to SocialAccount with a SocialPlatform enum and externalId, FK renames across Automation/DmLog/LinkClick/FollowerSnapshot/ProcessedComment, queue-payload generalization to {platform, externalAccountId}, codebase-wide identifier sweep (~41 files), FACEBOOK_APP_ID env plumbing, and the pre-coding Standard Access recipient probe against the production DmLog.",
+      "subdomain": "generic",
+      "depends_on": [],
+      "shared_design_concerns": [
+        "Hand-written SQL renames only — Prisma default drop/create loses data",
+        "Compound unique [platform, externalId]; all lookups platform-scoped",
+        "Drain in-flight Redis jobs at deploy across the payload rename"
+      ],
+      "slice": { "start_line": 309, "end_line": 335 },
+      "stories": [
+        {
+          "title": "Standard Access recipient probe on prod DmLog",
+          "slug": "standard-access-recipient-probe",
+          "acceptance_criteria": [
+            "The feasibility note's DmLog SQL is run against production and the verdict (strangers vs testers in commenterId) is recorded with evidence in the cliff note",
+            "If testers-only, the note records that the ceiling already exists on IG and the build proceeds either way"
+          ],
+          "technical_context": "SELECT commenterId, commenterName, status, dmSentAt FROM DmLog WHERE status='SENT' ORDER BY dmSentAt DESC LIMIT 20; strangers present ⇒ Standard Access suffices on the recipient side ⇒ identical for FB.",
+          "points": 1,
+          "executor": "cowork",
+          "priority": "P0-critical",
+          "persona": "research"
+        },
+        {
+          "title": "SocialAccount migration (data-preserving)",
+          "slug": "social-account-migration",
+          "acceptance_criteria": [
+            "Prisma schema: SocialAccount with platform SocialPlatform @default(INSTAGRAM), externalId, @@unique([platform, externalId]); FK/relation renames to socialAccountId/socialAccount on Automation, DmLog, LinkClick, FollowerSnapshot; ProcessedComment string column renamed",
+            "One hand-written SQL migration using ALTER TABLE/COLUMN RENAME — no drop/create of renamed tables",
+            "Applied to a seeded copy: row counts and FK integrity asserted; existing rows read back as platform=INSTAGRAM"
+          ],
+          "points": 5,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl"
+        },
+        {
+          "title": "Codebase rename sweep onto SocialAccount",
+          "slug": "codebase-rename-sweep",
+          "acceptance_criteria": [
+            "Client regenerated; ~41 source files swept: instagramAccount(Id)→socialAccount(Id), instagramId→externalId; lib/instagram-accounts.ts → lib/social-accounts.ts with getWorkspaceSocialAccount/canConnectSocialAccount",
+            "Queue payloads carry {platform, externalAccountId}; shared route query param renamed to socialAccountId",
+            "tsc --noEmit, eslint, and full vitest suite green; zero references to old Prisma identifiers outside migrations; PR notes the Redis queue drain at deploy"
+          ],
+          "points": 5,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl",
+          "blocked_by": ["social-account-migration"]
+        },
+        {
+          "title": "Facebook env plumbing",
+          "slug": "facebook-env-plumbing",
+          "acceptance_criteria": [
+            "FACEBOOK_APP_ID added to serverEnvSchema; getMissingFacebookOAuthEnv preflight mirrors the Instagram one",
+            "Env tests cover the missing/present matrix; .env.example and docs list the new variable"
+          ],
+          "points": 2,
+          "executor": "claude",
+          "priority": "P1-high",
+          "persona": "impl"
+        }
+      ]
+    },
+    {
+      "name": "channel-provider-seam — one pipeline, resolved per platform",
+      "slug": "channel-provider-seam",
+      "description": "Define the ChannelProvider contract (sendPrivateReply/sendDirectMessage ± Button/LinkButton, replyToComment, getRecentComments, listPosts, getConversations, subscribeWebhooks, getFollowStatus — null on FB, refreshToken — no-op on FB) with a resolveChannel registry; Instagram provider delegates to lib/meta/client.ts; worker processors, reconciler, routes, and the token-refresh cron consume the seam with zero platform conditionals in flow bodies. Core: the automation pipeline's delivery invariants (one private reply per comment, idempotent public reply, gate semantics) live here.",
+      "subdomain": "core",
+      "depends_on": ["platform-foundation"],
+      "shared_design_concerns": [
+        "Strategy — because send/read/refresh semantics vary by platform behind one worker-facing contract; revisit at build (may collapse to a keyed object literal of two providers)",
+        "Adapter — because each provider normalizes a distinct Graph dialect to shared ChannelComment/ChannelPost types; revisit at build (may collapse into the strategy implementations)",
+        "No if(platform) inside worker flow bodies, routes, or reconciler (N-5)",
+        "Follow gate degrades visibly on FB: UI hides, API rejects, worker warns via OperationalEvent (FR-5)"
+      ],
+      "slice": { "start_line": 336, "end_line": 368 },
+      "stories": [
+        {
+          "title": "Channel contract + Instagram provider",
+          "slug": "channel-contract-and-instagram-provider",
+          "acceptance_criteria": [
+            "lib/channels/{types,instagram,index}.ts: contract with params objects, resolveChannel registry, Instagram provider delegating to existing lib/meta/client.ts functions",
+            "Contract unit-tested through the IG provider against mocked fetch; getFollowStatus and refreshToken behavior preserved exactly; no call-site changes yet"
+          ],
+          "points": 5,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl"
+        },
+        {
+          "title": "Worker on the seam",
+          "slug": "worker-on-the-seam",
+          "acceptance_criteria": [
+            "processComment/processPostback/processFollowUp/processMessage and sendRevealDirectMessage resolve a provider from the job's platform; zero platform conditionals in flow bodies",
+            "Follow-gate guarded per FR-5: FB automation with requireFollow proceeds gate-less and writes an OperationalEvent WARNING",
+            "Existing dm-worker tests green; new tests for platform resolution and the FB requireFollow warning path"
+          ],
+          "points": 8,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl",
+          "blocked_by": ["channel-contract-and-instagram-provider"]
+        },
+        {
+          "title": "Reconciler + routes + cron on the seam",
+          "slug": "reconciler-and-routes-on-the-seam",
+          "acceptance_criteria": [
+            "Reconciler uses provider.getRecentComments/listPosts with normalized ownerReplied; sweep caps unchanged",
+            "posts/conversations/overview routes resolve the provider; token-refresh cron filters platform=INSTAGRAM",
+            "Reconciler tests cover both reply-edge shapes; cron test proves FB rows are never selected"
+          ],
+          "points": 5,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl",
+          "blocked_by": ["channel-contract-and-instagram-provider"]
+        }
+      ]
+    },
+    {
+      "name": "facebook-connect — OAuth + Page picker",
+      "slug": "facebook-connect",
+      "description": "FB Login for Business flow: dialog with scopes pages_show_list, pages_messaging, pages_read_engagement, pages_manage_engagement, pages_manage_metadata; code → short user token → fb_exchange_token long-lived user token held in an encrypted 10-minute httpOnly cookie; GET /me/accounts Page picker; selected Page's never-expiring token encrypted onto SocialAccount(platform=FACEBOOK, tokenExpiresAt=null) with the cross-workspace guard; subscribed_apps with feed,messages,messaging_postbacks,message_reads; ?facebook= status codes mirroring ?instagram=.",
+      "subdomain": "supporting",
+      "depends_on": ["platform-foundation"],
+      "shared_design_concerns": [
+        "Long-lived user token never persisted — encrypted short-TTL cookie only",
+        "Reuse createOAuthState HMAC and AES-GCM helpers"
+      ],
+      "slice": { "start_line": 369, "end_line": 382 },
+      "stories": [
+        {
+          "title": "Facebook OAuth module",
+          "slug": "facebook-oauth-module",
+          "acceptance_criteria": [
+            "lib/meta/facebook-oauth.ts: dialog URL builder with the five scopes, code→short-token and fb_exchange_token exchanges",
+            "Unit tests with mocked fetch: happy path, Meta error bodies, state round-trip"
+          ],
+          "points": 3,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl"
+        },
+        {
+          "title": "Page connect routes + picker backend",
+          "slug": "page-connect-routes",
+          "acceptance_criteria": [
+            "app/api/facebook/{connect,callback,pages}: session/canManageWorkspace/env-preflight guards, encrypted 10-min cookie carrying the user token, paged /me/accounts listing, POST persists the selected Page and subscribes webhooks",
+            "Token stored encrypted with tokenExpiresAt=null; webhookSubscribed reflects the subscribe result; cookie cleared after selection",
+            "Route tests for guard/env/state failures and cross-workspace already_connected"
+          ],
+          "points": 5,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl",
+          "blocked_by": ["facebook-oauth-module"]
+        }
+      ]
+    },
+    {
+      "name": "facebook-provider — Graph implementation",
+      "slug": "facebook-provider",
+      "description": "Facebook ChannelProvider against graph.facebook.com sharing handleResponse and the MetaApiError taxonomy: messaging sends via POST /{page-id}/messages (recipient comment_id or id; button/web_url payloads identical to IG), public reply via POST /{comment-id}/comments, recent comments with the nested comments reply edge, posts via published_posts + video_reels merged, conversations, and daily fan_count snapshots into FollowerSnapshot.",
+      "subdomain": "supporting",
+      "depends_on": ["channel-provider-seam", "facebook-connect"],
+      "shared_design_concerns": [
+        "Comments lacking from (privacy-restricted users) are skipped — the pipeline requires a commenter identity",
+        "No Graph shapes leak past the provider (normalized ChannelComment/ChannelPost)"
+      ],
+      "slice": { "start_line": 383, "end_line": 398 },
+      "stories": [
+        {
+          "title": "Facebook messaging sends",
+          "slug": "facebook-messaging-sends",
+          "acceptance_criteria": [
+            "sendPrivateReply/sendDirectMessage ± Button/LinkButton against POST /{page-id}/messages with 640-char text and 20-char title truncation",
+            "Meta errors mapped through MetaApiError/TokenExpiredError/RateLimitError/PermissionError; fixture tests per send variant"
+          ],
+          "points": 5,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl"
+        },
+        {
+          "title": "Facebook comments + posts read paths",
+          "slug": "facebook-comments-and-posts",
+          "acceptance_criteria": [
+            "replyToComment, getRecentComments (nested comments edge → ownerReplied, paginated within lookback), listPosts (published_posts + video_reels merged desc), getConversations",
+            "Fixture tests include comments missing from, pagination, and reel/post merge order"
+          ],
+          "points": 3,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl"
+        },
+        {
+          "title": "Facebook fan-count snapshots",
+          "slug": "facebook-fan-snapshots",
+          "acceptance_criteria": [
+            "Snapshot cron reads fan_count for FACEBOOK accounts into FollowerSnapshot (one row per account per day); no backfill",
+            "IG snapshot path untouched, proven by existing tests"
+          ],
+          "points": 2,
+          "executor": "claude",
+          "priority": "P2-medium",
+          "persona": "impl"
+        }
+      ]
+    },
+    {
+      "name": "facebook-webhooks — dispatch + hard noise filter",
+      "slug": "facebook-webhooks",
+      "description": "Webhook route dispatches by payload.object; parseFacebookCommentEvents accepts only field:feed events with item==comment && verb==add, dropping likes/shares/statuses/reactions/edits/removes, Page-authored comments, and comments missing from; entry.messaging parsers generalized to accept object page as well as instagram; account lookups move to [platform, externalId]; deterministic job ids hold with FB postid_commentid ids.",
+      "subdomain": "supporting",
+      "depends_on": ["channel-provider-seam", "facebook-provider"],
+      "shared_design_concerns": [
+        "Feed-noise immunity (N-2) is the highest-risk correctness surface — exhaustive drop fixtures",
+        "Unknown webhook objects: record WebhookEvent, return 200"
+      ],
+      "slice": { "start_line": 399, "end_line": 412 },
+      "stories": [
+        {
+          "title": "Facebook feed comment parser with hard filter",
+          "slug": "facebook-feed-comment-parser",
+          "acceptance_criteria": [
+            "parseFacebookCommentEvents emits {platform:FACEBOOK, externalAccountId, commentId, mediaId(post_id), commenter} only for item==comment && verb==add with a from.id",
+            "Fixture tests prove drops for like, share, status, reaction, edit, remove, Page-authored, and missing-from events"
+          ],
+          "points": 3,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl"
+        },
+        {
+          "title": "Webhook dispatch by object + shared messaging parsers",
+          "slug": "webhook-dispatch-and-shared-messaging",
+          "acceptance_criteria": [
+            "Route dispatches object instagram|page; messaging/postback/read parsers accept page; account lookup by [platform, externalId]; job id shapes unchanged",
+            "End-to-end route tests enqueue correct jobs for object:page comment/message/postback/read payloads; object:instagram fixtures behave byte-identically; unknown object → 200 + recorded WebhookEvent"
+          ],
+          "points": 3,
+          "executor": "claude",
+          "priority": "P0-critical",
+          "persona": "impl",
+          "blocked_by": ["facebook-feed-comment-parser"]
+        }
+      ]
+    },
+    {
+      "name": "dual-channel-ui",
+      "slug": "dual-channel-ui",
+      "description": "Settings gains a Facebook connect button, Page-picker step, platform badges, per-platform status notices, and disconnect parity; the campaign builder becomes platform-aware (follow gate hidden with an Instagram-only explainer for FB accounts, API rejects requireFollow on FB, post picker renders FB posts/reels); overview labels the fan series and degrades gracefully where FB lacks an IG metric.",
+      "subdomain": "supporting",
+      "depends_on": ["platform-foundation", "facebook-connect"],
+      "shared_design_concerns": [
+        "Follow-gate hiding is capability-driven off platform, not hardcoded per page",
+        "Platform badge appears everywhere an account is rendered (FR-9)"
+      ],
+      "slice": { "start_line": 413, "end_line": 428 },
+      "stories": [
+        {
+          "title": "Settings dual connect + Page picker UI",
+          "slug": "settings-dual-connect",
+          "acceptance_criteria": [
+            "Second connect button and Page-picker step; platform badges; ?facebook= status notices; disconnect works for FB rows",
+            "A connected FB account renders with badge and subscribe state"
+          ],
+          "points": 3,
+          "executor": "claude",
+          "priority": "P1-high",
+          "persona": "impl"
+        },
+        {
+          "title": "Platform-aware campaign builder",
+          "slug": "platform-aware-campaign-builder",
+          "acceptance_criteria": [
+            "account-select shows badges; selecting a FACEBOOK account hides the follow-gate section with a one-line Instagram-only explainer and resets requireFollow state",
+            "Automations API rejects requireFollow=true for FACEBOOK accounts (tested)",
+            "Post picker renders FB posts/reels using full_picture/message"
+          ],
+          "points": 5,
+          "executor": "claude",
+          "priority": "P1-high",
+          "persona": "impl"
+        },
+        {
+          "title": "Platform-aware overview",
+          "slug": "platform-aware-overview",
+          "acceptance_criteria": [
+            "Follower chart labeled as fans for FB accounts; graceful insights-unavailable states where FB lacks an IG metric; both account types render without error"
+          ],
+          "points": 2,
+          "executor": "claude",
+          "priority": "P2-medium",
+          "persona": "impl"
+        }
+      ]
+    },
+    {
+      "name": "validation-rollout",
+      "slug": "validation-rollout",
+      "description": "Meta App Dashboard configuration (Facebook Login for Business product, redirect URI, Page-object webhook subscription, App Roles), a live smoke test on the user's own Page covering every flow leg, self-hoster docs for the no-App-Review Facebook path, and cross-platform hardening fixtures over the shared machinery (rate limiter, usage billing, dedup, tracking).",
+      "subdomain": "supporting",
+      "depends_on": ["platform-foundation", "channel-provider-seam", "facebook-connect", "facebook-provider", "facebook-webhooks", "dual-channel-ui"],
+      "shared_design_concerns": [
+        "Live smoke is the only networked validation; everything else runs on fixtures"
+      ],
+      "slice": { "start_line": 429, "end_line": 448 },
+      "stories": [
+        {
+          "title": "Meta App Dashboard configuration",
+          "slug": "meta-app-dashboard-config",
+          "acceptance_criteria": [
+            "Facebook Login (for Business) product added to the existing app with the callback redirect URI; webhook product subscribed to the Page object with the existing callback URL and verify token; FB account added under App Roles",
+            "Webhook GET verification succeeds for the Page object and a test event is received"
+          ],
+          "points": 2,
+          "executor": "human",
+          "priority": "P0-critical",
+          "persona": "ops"
+        },
+        {
+          "title": "Live smoke on own Page",
+          "slug": "live-smoke-own-page",
+          "acceptance_criteria": [
+            "Real Page connected; campaign on a real post; a second account's comment produces the private reply and public reply; button tap reveals; DM keyword trigger replies; logs and overview populate",
+            "Each leg evidenced (screenshot/log) in the cliff note"
+          ],
+          "points": 3,
+          "executor": "human",
+          "priority": "P0-critical",
+          "persona": "ops",
+          "blocked_by": ["meta-app-dashboard-config"]
+        },
+        {
+          "title": "Self-hoster docs for the Facebook path",
+          "slug": "self-hoster-docs",
+          "acceptance_criteria": [
+            "docs/setup.md Facebook section (app config, App Roles, scopes, no-review rationale); META_APP_REVIEW.md Facebook paragraph; README channel matrix; .env.example updated",
+            "Docs walk a fresh self-hoster to a connected Page without App Review"
+          ],
+          "points": 2,
+          "executor": "claude",
+          "priority": "P1-high",
+          "persona": "impl"
+        },
+        {
+          "title": "Cross-platform hardening fixtures",
+          "slug": "cross-platform-hardening-fixtures",
+          "acceptance_criteria": [
+            "One test per shared-machinery seam with FACEBOOK fixtures: rate-limiter reservation, usage billing increment, ProcessedComment/DmLog dedup with postid_commentid ids, link tracking rows carrying socialAccountId"
+          ],
+          "points": 3,
+          "executor": "claude",
+          "priority": "P1-high",
+          "persona": "impl"
+        }
+      ]
+    }
+  ],
+  "dependencies": [
+    "Existing Meta app with Instagram Login already configured (FACEBOOK_APP_SECRET present in serverEnvSchema)",
+    "New env: FACEBOOK_APP_ID",
+    "Meta Graph API v25.0 (META_GRAPH_API_VERSION)",
+    "BullMQ/Redis and Postgres as deployed; drain in-flight Redis jobs at the payload-rename deploy",
+    "Facebook account with a role on the app (App Roles) — Standard Access only, no App Review"
+  ],
+  "design_concerns": [
+    "Data-preserving SQL rename migration — never Prisma drop/create (verified on a seeded copy)",
+    "Seam discipline: platform varies only at provider resolution and in webhook parsers; no platform conditionals in worker flow bodies",
+    "Feed-noise immunity: only item==comment && verb==add enters the queue, with exhaustive drop fixtures",
+    "Follow gate has no FB analogue — hidden in UI, rejected by API, warned by worker (visible degradation)",
+    "Page tokens never expire: tokenExpiresAt=null, refresh cron scoped to INSTAGRAM",
+    "Long-lived user token held only in an encrypted 10-minute cookie during Page selection",
+    "Compound uniqueness [platform, externalId]; dedup and deterministic job ids hold with FB postid_commentid ids",
+    "Standard Access ceiling: nothing may depend on Advanced Access, App Review, or Business Verification"
+  ],
+  "scaffold_mode": "single-pass",
+  "design_spike": false
+}
