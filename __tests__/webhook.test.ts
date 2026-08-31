@@ -12,6 +12,7 @@ import {
   parseReadEvents,
 } from "../lib/meta/webhook";
 import { createHmac } from "crypto";
+import { SocialPlatform } from "@/app/generated/prisma/client";
 
 // Mock the environment variable
 beforeEach(() => {
@@ -90,6 +91,7 @@ describe("parseCommentEvents", () => {
     const events = parseCommentEvents(payload);
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
+      platform: SocialPlatform.INSTAGRAM,
       externalAccountId: "page_123",
       commentId: "comment_456",
       commentText: "I want the LINK!",
@@ -370,6 +372,7 @@ describe("parseMessageEvents", () => {
 
     expect(parseMessageEvents(payload)).toEqual([
       {
+        platform: SocialPlatform.INSTAGRAM,
         externalAccountId: "ig_456",
         messageId: "mid_abc",
         messageText: "send me the LINK please",
@@ -445,10 +448,39 @@ describe("parseMessageEvents", () => {
     expect(parseMessageEvents(payload)).toHaveLength(0);
   });
 
-  it("should ignore non-instagram payloads", () => {
+  it("parses page payloads and stamps the Facebook platform", () => {
+    const events = parseMessageEvents({
+      object: "page",
+      entry: [
+        {
+          id: "page_456",
+          time: 1,
+          messaging: [
+            {
+              sender: { id: "user_999" },
+              recipient: { id: "page_456" },
+              message: { mid: "mid_abc", text: "link" },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(events).toEqual([
+      {
+        platform: SocialPlatform.FACEBOOK,
+        externalAccountId: "page_456",
+        messageId: "mid_abc",
+        messageText: "link",
+        senderId: "user_999",
+      },
+    ]);
+  });
+
+  it("should ignore unsupported objects", () => {
     expect(
       parseMessageEvents({
-        object: "page",
+        object: "whatsapp_business_account",
         entry: [
           {
             id: "ig_456",
@@ -487,6 +519,7 @@ describe("parseReadEvents", () => {
 
     expect(parseReadEvents(payload)).toEqual([
       {
+        platform: SocialPlatform.INSTAGRAM,
         externalAccountId: "ig_456",
         userId: "commenter_999",
         watermark: 1770000000000,

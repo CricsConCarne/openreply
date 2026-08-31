@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import { SocialPlatform } from "@/app/generated/prisma/client";
 
 export function verifyWebhookSignature(
   payload: string,
@@ -32,7 +33,19 @@ export function verifyWebhookSignature(
   });
 }
 
+/**
+ * Map a webhook `payload.object` to the platform its events belong to.
+ * Returns null for an object this pipeline does not handle, so callers can
+ * early-out without a platform literal of their own.
+ */
+export function platformForObject(object: string): SocialPlatform | null {
+  if (object === "instagram") return SocialPlatform.INSTAGRAM;
+  if (object === "page") return SocialPlatform.FACEBOOK;
+  return null;
+}
+
 export interface WebhookCommentEvent {
+  platform: SocialPlatform;
   externalAccountId: string;
   commentId: string;
   commentText: string;
@@ -56,9 +69,17 @@ interface WebhookEntry {
       id?: string;
       comment_id?: string;
       text?: string;
+      // Facebook `feed` changes carry the comment body in `message` (Instagram
+      // uses `text`) and discriminate the change with `item` + `verb`.
+      message?: string;
+      item?: string;
+      verb?: string;
+      post_id?: string;
       from?: {
         id?: string;
         username?: string;
+        // Facebook `feed` `from` uses `name`; Instagram uses `username`.
+        name?: string;
       };
       media?: {
         id?: string;
@@ -88,6 +109,7 @@ interface WebhookEntry {
 }
 
 export interface WebhookMessageEvent {
+  platform: SocialPlatform;
   externalAccountId: string;
   messageId: string;
   messageText: string;
@@ -95,6 +117,7 @@ export interface WebhookMessageEvent {
 }
 
 export interface WebhookPostbackEvent {
+  platform: SocialPlatform;
   externalAccountId: string;
   userId: string;
   payload: string;
@@ -102,6 +125,7 @@ export interface WebhookPostbackEvent {
 }
 
 export interface WebhookReadEvent {
+  platform: SocialPlatform;
   externalAccountId: string;
   userId: string;
   watermark?: number;
@@ -147,6 +171,7 @@ export function parseCommentEvents(payload: WebhookPayload): WebhookCommentEvent
       }
 
       events.push({
+        platform: SocialPlatform.INSTAGRAM,
         externalAccountId: entry.id,
         commentId,
         commentText: value.text ?? "",
@@ -154,6 +179,58 @@ export function parseCommentEvents(payload: WebhookPayload): WebhookCommentEvent
         commenterName: value.from?.username,
         mediaId,
         originalMediaId,
+      });
+    }
+  }
+
+  return events;
+}
+
+/**
+ * Parse new top-level comments out of a Facebook Page `feed` webhook.
+ *
+ * The `feed` webhook is a firehose: it also fires on likes, shares, statuses,
+ * reactions, photo posts, comment edits, removes, and hides. Only a freshly
+ * added comment may reach the queue, so the hard filter below keeps exactly
+ * `item === "comment" && verb === "add"` and drops everything else.
+ *
+ * Unlike Instagram there is no ad indirection in v1, so `originalMediaId` is
+ * always left undefined.
+ */
+export function parseFacebookCommentEvents(
+  payload: WebhookPayload
+): WebhookCommentEvent[] {
+  const events: WebhookCommentEvent[] = [];
+
+  if (payload.object !== "page") return events;
+
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== "feed") continue;
+
+      const value = change.value;
+      if (value?.item !== "comment" || value?.verb !== "add") continue;
+
+      const commentId = value.comment_id;
+      const mediaId = value.post_id;
+      const commenterId = value.from?.id;
+
+      // A comment with no `from` is a privacy-restricted user the pipeline
+      // can't act on.
+      if (!entry.id || !commentId || !mediaId || !commenterId) continue;
+
+      // Drop the Page's own comments — replying to yourself is rejected.
+      if (commenterId === entry.id) continue;
+
+      events.push({
+        platform: SocialPlatform.FACEBOOK,
+        externalAccountId: entry.id,
+        commentId,
+        commentText: value.message ?? "",
+        commenterId,
+        commenterName: value.from?.name,
+        mediaId,
+        originalMediaId: undefined,
       });
     }
   }
@@ -170,7 +247,8 @@ export function parsePostbackEvents(
 ): WebhookPostbackEvent[] {
   const events: WebhookPostbackEvent[] = [];
 
-  if (payload.object !== "instagram") return events;
+  const platform = platformForObject(payload.object);
+  if (!platform) return [];
 
   for (const entry of payload.entry ?? []) {
     for (const messaging of entry.messaging ?? []) {
@@ -183,6 +261,7 @@ export function parsePostbackEvents(
       if (userId === accountId) continue;
 
       events.push({
+        platform,
         externalAccountId: accountId,
         userId,
         payload: postbackPayload,
@@ -209,7 +288,8 @@ export function parseMessageEvents(
 ): WebhookMessageEvent[] {
   const events: WebhookMessageEvent[] = [];
 
-  if (payload.object !== "instagram") return events;
+  const platform = platformForObject(payload.object);
+  if (!platform) return [];
 
   for (const entry of payload.entry ?? []) {
     for (const messaging of entry.messaging ?? []) {
@@ -229,6 +309,7 @@ export function parseMessageEvents(
       if (senderId === accountId) continue;
 
       events.push({
+        platform,
         externalAccountId: accountId,
         messageId,
         messageText: text,
@@ -248,7 +329,8 @@ export function parseMessageEvents(
 export function parseReadEvents(payload: WebhookPayload): WebhookReadEvent[] {
   const events: WebhookReadEvent[] = [];
 
-  if (payload.object !== "instagram") return events;
+  const platform = platformForObject(payload.object);
+  if (!platform) return [];
 
   for (const entry of payload.entry ?? []) {
     for (const messaging of entry.messaging ?? []) {
@@ -261,6 +343,7 @@ export function parseReadEvents(payload: WebhookPayload): WebhookReadEvent[] {
       if (userId === accountId) continue;
 
       events.push({
+        platform,
         externalAccountId: accountId,
         userId,
         watermark: messaging.read.watermark,
