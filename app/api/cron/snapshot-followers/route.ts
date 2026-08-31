@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { decryptToken } from "@/lib/meta/oauth";
-import { getUserInfo } from "@/lib/meta/client";
+import { resolveChannel } from "@/lib/channels";
 import {
   backfillFollowerHistory,
   recordFollowerSnapshot,
@@ -31,6 +31,7 @@ export async function GET(request: NextRequest) {
       id: true,
       workspaceId: true,
       username: true,
+      platform: true,
       externalId: true,
       accessToken: true,
     },
@@ -43,29 +44,34 @@ export async function GET(request: NextRequest) {
   for (const account of accounts) {
     try {
       const token = decryptToken(account.accessToken);
-      const info = await getUserInfo(token);
+      const channel = resolveChannel(account.platform);
+      const followerCount = await channel.getFollowerCount({
+        accessToken: token,
+        accountId: account.externalId,
+      });
 
-      if (typeof info.followers_count !== "number") {
+      if (followerCount === null) {
         failures.push({
           username: account.username,
-          reason: "followers_count not returned",
+          reason: "follower count not returned",
         });
         continue;
       }
 
-      await recordFollowerSnapshot(account.id, info.followers_count);
+      await recordFollowerSnapshot(account.id, followerCount);
       recorded += 1;
 
-      // First time we see this account, try to recover the last 30 days.
+      // First time we see this account, try to recover the last 30 days —
+      // only on platforms whose insights let us reconstruct that history.
       const existing = await prisma.followerSnapshot.count({
         where: { socialAccountId: account.id },
       });
-      if (existing <= 1) {
+      if (existing <= 1 && channel.hasFollowerHistoryBackfill) {
         backfilled += await backfillFollowerHistory(
           account.id,
           token,
           account.externalId,
-          info.followers_count
+          followerCount
         );
       }
     } catch (err) {

@@ -1,5 +1,5 @@
 import { getMetaGraphApiVersion, requireEnv } from "@/lib/env";
-import { MetaApiError } from "@/lib/meta/client";
+import { facebookGraphBase, handleResponse } from "@/lib/meta/client";
 
 // Facebook Login for Business: the authorization dialog lives on
 // www.facebook.com, while the code and token exchanges run against the Graph
@@ -23,10 +23,6 @@ const LONG_LIVED_TOKEN_TTL_SECONDS = 5_184_000;
 
 function facebookDialogBase(): string {
   return `https://www.facebook.com/${getMetaGraphApiVersion()}/dialog/oauth`;
-}
-
-function facebookGraphBase(): string {
-  return `https://graph.facebook.com/${getMetaGraphApiVersion()}`;
 }
 
 interface FacebookTokenResponse {
@@ -64,7 +60,7 @@ export async function exchangeCodeForFacebookToken({
   url.searchParams.set("code", code);
 
   const response = await fetch(url.toString());
-  const data = await parseGraphResponse<FacebookTokenResponse>(response);
+  const data = await handleResponse<FacebookTokenResponse>(response);
 
   return {
     accessToken: data.access_token,
@@ -84,7 +80,7 @@ export async function exchangeForLongLivedUserToken({
   url.searchParams.set("fb_exchange_token", shortLivedToken);
 
   const response = await fetch(url.toString());
-  const data = await parseGraphResponse<FacebookTokenResponse>(response);
+  const data = await handleResponse<FacebookTokenResponse>(response);
 
   return {
     accessToken: data.access_token,
@@ -127,7 +123,7 @@ export async function getFacebookUserPages(
 
   while (nextUrl !== null) {
     const response: Response = await fetch(nextUrl);
-    const page = await parseGraphResponse<{
+    const page = await handleResponse<{
       data: FacebookPage[];
       paging?: { next?: string };
     }>(response);
@@ -157,32 +153,5 @@ export async function subscribeFacebookPageToWebhooks(
     }
   );
 
-  return parseGraphResponse<{ success: boolean }>(response);
-}
-
-interface GraphApiError {
-  error?: {
-    message: string;
-    type?: string;
-    code: number;
-    error_subcode?: number;
-    fbtrace_id?: string;
-  };
-}
-
-// Mirrors handleResponse in lib/meta/client.ts: surface Meta's error body as a
-// MetaApiError with a contextual message rather than returning a silent null.
-async function parseGraphResponse<T>(response: Response): Promise<T> {
-  const data = await response.json();
-
-  if (!response.ok || (data as GraphApiError).error) {
-    const err = (data as GraphApiError).error;
-    const code = err?.code ?? response.status;
-    const subcode = err?.error_subcode;
-    const traceId = err?.fbtrace_id;
-    const message = `${err?.message ?? "Unknown Meta API error"} [code=${code} sub=${subcode ?? "-"} type=${err?.type ?? "-"} trace=${traceId ?? "-"}]`;
-    throw new MetaApiError(code, subcode, traceId, message);
-  }
-
-  return data as T;
+  return handleResponse<{ success: boolean }>(response);
 }

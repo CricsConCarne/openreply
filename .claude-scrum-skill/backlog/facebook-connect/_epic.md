@@ -1,7 +1,7 @@
 ---
 title: Facebook Connect — OAuth + Page picker
 slug: facebook-connect
-status: open
+status: closed
 subdomain: supporting
 created: 2026-08-30T18:10:00Z
 ---
