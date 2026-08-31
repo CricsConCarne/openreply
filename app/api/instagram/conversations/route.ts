@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { getWorkspaceSocialAccount } from "@/lib/social-accounts";
-import {
-  getConversations,
-  sendDirectMessage,
-  MetaApiError,
-} from "@/lib/meta/client";
+import { resolveChannel } from "@/lib/channels";
+import { sendDirectMessage, MetaApiError } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 
 export interface ConversationListItem {
@@ -47,15 +44,18 @@ export async function GET(request: NextRequest) {
 
   try {
     const accessToken = decryptToken(account.accessToken);
-    const raw = await getConversations(accessToken, account.externalId);
+    const provider = resolveChannel(account.platform);
+    const raw = await provider.getConversations({
+      accessToken,
+      accountId: account.externalId,
+    });
 
     const conversations: ConversationListItem[] = raw.map((c) => {
-      const participants = c.participants?.data ?? [];
       const contact =
-        participants.find((p) => p.id !== account.externalId) ??
-        participants[0] ??
+        c.participants.find((p) => p.id !== account.externalId) ??
+        c.participants[0] ??
         null;
-      const last = c.messages?.data?.[0] ?? null;
+      const last = c.lastMessage ?? null;
 
       return {
         id: c.id,
@@ -63,12 +63,12 @@ export async function GET(request: NextRequest) {
           id: contact?.id ?? "",
           username: contact?.username ?? null,
         },
-        updatedTime: c.updated_time ?? null,
+        updatedTime: c.updatedTime ?? null,
         lastMessage: last
           ? {
-              text: last.message ?? "",
+              text: last.text ?? "",
               fromMe: last.from?.id === account.externalId,
-              createdTime: last.created_time ?? null,
+              createdTime: last.createdTime ?? null,
             }
           : null,
       };
