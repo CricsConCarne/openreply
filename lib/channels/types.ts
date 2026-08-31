@@ -42,7 +42,10 @@ export interface ChannelProvider {
 
   subscribeWebhooks(p: SubscribeWebhooksParams): Promise<{ success: boolean }>;
 
-  /** null = the platform has no follow gate to check. */
+  /** Whether the platform has a follow gate at all. false triggers FR-5 (degrade visibly). */
+  readonly hasFollowGate: boolean;
+
+  /** null = the follow status could not be determined (e.g. a transient API error). */
   getFollowStatus(p: GetFollowStatusParams): Promise<boolean | null>;
 
   /** null = refreshing tokens is a no-op on this platform. */

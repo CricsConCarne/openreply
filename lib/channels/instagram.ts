@@ -48,6 +48,7 @@ import type {
  */
 export const instagramProvider: ChannelProvider = {
   platform: SocialPlatform.INSTAGRAM,
+  hasFollowGate: true,
 
   sendPrivateReply(p: SendPrivateReplyParams) {
     return sendPrivateReply(p.accessToken, p.accountId, p.commentId, p.message);

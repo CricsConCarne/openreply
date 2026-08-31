@@ -97,6 +97,7 @@ vi.mock("@/lib/channels", () => ({
 
 const mockChannelProvider = {
   platform: "INSTAGRAM",
+  hasFollowGate: true,
   sendPrivateReply: (p: {
     accessToken: string;
     accountId: string;
@@ -306,6 +307,7 @@ function createMockPostbackJob(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockChannelProvider.hasFollowGate = true;
 
   mockChannelProvider.platform = "INSTAGRAM";
   mockResolveChannel.mockReturnValue(mockChannelProvider);
@@ -1171,6 +1173,7 @@ describe("DM Worker — DM keyword trigger", () => {
       { ...dmTriggerAutomation, requireFollow: true },
     ]);
     mockChannelProvider.platform = "FACEBOOK";
+    mockChannelProvider.hasFollowGate = false;
     mockGetUserFollowStatus.mockResolvedValue(null);
 
     const processor = getProcessor();
@@ -1190,6 +1193,31 @@ describe("DM Worker — DM keyword trigger", () => {
         }),
       })
     );
+  });
+
+  // Zero-IG-regression guard: on a platform WITH a follow gate (Instagram), a
+  // null follow status means "could not verify" (transient API error), NOT "no
+  // gate". It must fail closed to the prompt exactly as the pre-seam worker did —
+  // never proceed ungated, and never emit the FR-5 warning.
+  it("should fail closed to the follow prompt when Instagram cannot verify follow status", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([
+      { ...dmTriggerAutomation, requireFollow: true },
+    ]);
+    mockGetUserFollowStatus.mockResolvedValue(null);
+
+    const processor = getProcessor();
+    await processor(createMockMessageJob());
+
+    expect(mockSendDirectMessageWithButton).toHaveBeenCalledWith(
+      "decrypted_token",
+      "ig_456",
+      "commenter_999",
+      expect.any(String),
+      "I'm following ✅",
+      "followcheck:auto_789"
+    );
+    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+    expect(mockPrisma.operationalEvent.create).not.toHaveBeenCalled();
   });
 
   it("should skip and log when the workspace is over its monthly limit", async () => {
@@ -1249,6 +1277,7 @@ describe("DM Worker — channel seam", () => {
       { ...mockAutomation, requireFollow: true },
     ]);
     mockChannelProvider.platform = "FACEBOOK";
+    mockChannelProvider.hasFollowGate = false;
     mockGetUserFollowStatus.mockResolvedValue(null); // no follow gate on this platform
 
     const processor = getProcessor();

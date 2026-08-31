@@ -91,24 +91,28 @@ async function recordFollowGateSkipped(
 }
 
 /**
- * Resolve a recipient's follow status through the channel. A null result means
- * the platform has no follow gate (FR-5): the send proceeds ungated and the
- * skipped gate is recorded as a WARNING. Callers gate only on an explicit
- * `false`; a boolean is honoured exactly as before.
+ * Resolve a recipient's follow status through the channel.
+ *
+ * When the platform has no follow gate (FR-5, e.g. Facebook), there is nothing
+ * to check: the skipped gate is recorded as a WARNING and the recipient is
+ * treated as satisfied (`true`) so the send proceeds ungated without ever
+ * prompting. When the platform DOES have a gate (Instagram), the raw status is
+ * returned unchanged — including `null` on a transient error — so callers keep
+ * their exact pre-seam Instagram semantics.
  */
 async function resolveFollowStatus(
   channel: ChannelProvider,
   recipient: { accessToken: string; recipientId: string },
   automation: GatedAutomation
 ): Promise<boolean | null> {
-  const status = await channel.getFollowStatus({
+  if (!channel.hasFollowGate) {
+    await recordFollowGateSkipped(channel.platform, automation);
+    return true;
+  }
+  return channel.getFollowStatus({
     accessToken: recipient.accessToken,
     recipientId: recipient.recipientId,
   });
-  if (status === null) {
-    await recordFollowGateSkipped(channel.platform, automation);
-  }
-  return status;
 }
 
 type WorkerTrackedLink = {
@@ -600,7 +604,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         { accessToken, recipientId: commenterId },
         automation
       );
-      sendFollowPrompt = status === false;
+      sendFollowPrompt = status !== true;
     }
 
     try {
@@ -1134,7 +1138,7 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
         { accessToken, recipientId: senderId },
         automation
       );
-      sendFollowPrompt = status === false;
+      sendFollowPrompt = status !== true;
     }
 
     const usage = await reserveWorkspaceDMSend(automation.workspaceId);
