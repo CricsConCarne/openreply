@@ -45,6 +45,23 @@ OpenReply is built around Meta's official Instagram private replies. It does not
 - DM logs. Every send, skip, and failure is logged with a reason.
 - Self-comment filtering. Your own comments never trigger a reply, since Meta rejects DMing yourself anyway.
 
+## Channels
+
+OpenReply runs the same comment-to-DM engine over two channels. Instagram is the original; Facebook Pages are a second, independent channel you can add on the same Meta app. Connect either or both. A few behaviors differ because Meta's two platforms expose different capabilities.
+
+| Capability | Instagram | Facebook Page |
+| --- | --- | --- |
+| Comment keyword to DM | Yes | Yes |
+| Optional public comment reply | Yes | Yes |
+| Inbound-DM / Story-reply triggers | Yes | Yes (DMs; no Stories) |
+| Tracked links and click stats | Yes | Yes |
+| Follow gate | Yes | No — Facebook exposes no Page follow signal |
+| Token lifecycle | ~60-day token, refreshed by the daily cron | Page token, does not expire |
+| Overview metric | Follower count and history | Page likes (`fan_count`); no history |
+| App Review to run your own | Not needed (App Roles) | Not needed (App Roles) |
+
+Setup for both lives in [docs/setup.md](docs/setup.md): the Instagram steps first, then a "Connecting a Facebook Page" section that reuses the same app.
+
 ## How it works
 
 1. Someone comments on your Instagram post or reel, or DMs you, or replies to your Story.

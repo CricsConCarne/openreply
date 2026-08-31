@@ -224,6 +224,83 @@ You do not have to do anything here; OpenReply handles it. It is worth understan
 
 Meta's `/me` returns two IDs. The `id` field is app-scoped. The `user_id` field is the Instagram professional account ID. Webhooks put `user_id` in `entry.id`, and the messaging API keys off `user_id` too. OpenReply stores `user_id`, so a fresh connection matches correctly. If you upgraded from a very old build and an account was stored with the wrong ID, disconnect and reconnect it once.
 
+## Connecting a Facebook Page (optional second channel)
+
+Facebook is a second, independent channel: comment `LINK` on a Page post and the commenter gets a Messenger DM, the same as the Instagram flow. It is optional — skip this whole section if you only want Instagram. It reuses the *same* Meta app you built above; you do not create a second app.
+
+The good news for a self-hoster: running your own Pages needs **no App Review, no Business Verification, and no Advanced Access**, exactly like Instagram. The mechanism is the same App Roles escape hatch, described below.
+
+Have your Vercel domain ready again; you paste it into a redirect URI and a webhook.
+
+### Step 10: Add the Facebook Login for Business product
+
+Instagram and Facebook use different login products on the same app. The Instagram steps above use Instagram Login; the Facebook channel uses **Facebook Login for Business**. Adding one does not affect the other.
+
+In your app dashboard, add the **Facebook Login for Business** product (Products, then add it). This is a distinct product from the "Authenticate with Facebook Login" use case the Instagram section warned you away from — for the Facebook channel you *do* want it, because OpenReply drives Pages through it.
+
+### Step 11: Register the Facebook OAuth redirect URI
+
+In Facebook Login for Business, open its settings and add this to the valid OAuth redirect URIs, using your Vercel domain:
+
+```
+https://your-app.vercel.app/api/facebook/callback
+```
+
+No trailing slash. This is a different path from the Instagram callback (`/api/instagram/callback`); both live on the same app and both must be registered. A missing or misspelled entry fails the connect with a redirect_uri mismatch.
+
+OpenReply builds its own authorization URL and requests exactly these Page scopes (from `lib/meta/facebook-oauth.ts`):
+
+```
+pages_show_list, pages_messaging, pages_read_engagement, pages_manage_engagement, pages_manage_metadata
+```
+
+`pages_show_list` lists the Pages you administer so you can pick one, `pages_messaging` sends the DM, and the `read`/`manage` engagement and metadata scopes read the Page's comments and subscribe its webhook. You do not enter these anywhere — they are in the login URL the app generates.
+
+### Step 12: Subscribe the app's webhook to the Page object
+
+The Facebook channel delivers to the **same** `/api/webhook` endpoint and the **same** `WEBHOOK_VERIFY_TOKEN` as Instagram — there is one webhook receiver, keyed by the payload's `object` field (`instagram` vs `page`). You do not stand up a second callback.
+
+In the app dashboard, open the webhook configuration for the **Page** object (not the Instagram object you configured in Step 8):
+
+- Callback URL: `https://your-app.vercel.app/api/webhook`
+- Verify token: the value of `WEBHOOK_VERIFY_TOKEN`
+- Subscribed fields: `feed`, `messages`, `messaging_postbacks`, `message_reads`
+
+`feed` carries comment-to-DM (new and edited comments and posts); `messages`, `messaging_postbacks`, and `message_reads` carry the inbound-DM, button-tap, and read-receipt events the messaging flows react to. These are the exact fields OpenReply subscribes each connected Page to (`FACEBOOK_WEBHOOK_FIELDS` in `lib/meta/facebook-oauth.ts`).
+
+One convenience: when you connect a Page in the app (Step 14), OpenReply calls the Page's `subscribed_apps` endpoint with these fields automatically, so the *per-Page* subscription is handled for you. The app-level webhook config above still has to be set once in the dashboard so Meta knows where to deliver Page events at all.
+
+### Step 13: The App Roles escape hatch (why no App Review)
+
+`pages_messaging` under **Standard Access** covers Pages that an account with a role on your app administers — Admins, Developers, and Testers. So to run your own Pages, add the Facebook account (and, if different, the account that owns the Page) under App roles, Roles as **Admin**, **Developer**, or **Tester**, then accept the invite from that account.
+
+That is the whole requirement. Standard Access + a role on the app is enough to send DMs from your own Pages:
+
+- **No App Review.** Review only widens who *else's* Pages you may act on — Advanced Access.
+- **No Business Verification.** That gates Advanced Access, which you do not need for your own Pages.
+- **No Advanced Access.** Standard Access already covers roled accounts.
+
+This is the exact same rationale as the Instagram "publishing is not Advanced Access" section above, applied to Pages. If you ever want strangers to connect *their* Pages to your instance, that needs App Review — see [META_APP_REVIEW.md](../META_APP_REVIEW.md).
+
+### Step 14: Connect a Page from the app
+
+Once the account has a role and `FACEBOOK_APP_ID` and `FACEBOOK_APP_SECRET` are set (both are already in the [environment variables](#environment-variables) table), the connect flow is short:
+
+1. In the app, go to Settings and click **Connect Facebook Page**.
+2. Authorize through Facebook Login for Business.
+3. Pick which Page to connect from the list of Pages you administer.
+4. Done. OpenReply stores the Page token and auto-subscribes the Page to the webhook fields.
+
+Now a keyword comment on that Page's post produces a Messenger DM, just like Instagram.
+
+### What is different from Instagram
+
+Three behaviors a self-hoster should expect, because the Facebook channel is not identical to Instagram:
+
+- **No follow gate.** The "require a follow before sending the link" toggle is Instagram-only. Facebook exposes no follow-status signal for a Page, so the gate cannot exist there; a Facebook campaign always sends ungated (`lib/channels/facebook.ts`).
+- **Page tokens do not expire.** A Page access token stays valid as long as the underlying user token does, so connected Pages are stored with no expiry and there is no refresh clock — unlike Instagram's ~60-day token that the daily cron refreshes.
+- **The overview shows Page likes, not followers.** A Page has no follower_count insight, so the account overview charts the Page's `fan_count` (its like count) and labels it "Page likes", where an Instagram account shows follower history.
+
 ## Test it end to end
 
 1. Make sure the account is a tester and has accepted the invite (Step 6), and the app is published (Step 9).
