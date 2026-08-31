@@ -13,6 +13,7 @@ const {
   mockGetConversations,
   mockSubscribeInstagramAccountToWebhooks,
   mockGetUserFollowStatus,
+  mockGetUserInfo,
   mockRefreshLongLivedToken,
 } = vi.hoisted(() => ({
   mockSendPrivateReply: vi.fn(),
@@ -27,6 +28,7 @@ const {
   mockGetConversations: vi.fn(),
   mockSubscribeInstagramAccountToWebhooks: vi.fn(),
   mockGetUserFollowStatus: vi.fn(),
+  mockGetUserInfo: vi.fn(),
   mockRefreshLongLivedToken: vi.fn(),
 }));
 
@@ -43,6 +45,7 @@ vi.mock("@/lib/meta/client", () => ({
   getConversations: mockGetConversations,
   subscribeInstagramAccountToWebhooks: mockSubscribeInstagramAccountToWebhooks,
   getUserFollowStatus: mockGetUserFollowStatus,
+  getUserInfo: mockGetUserInfo,
   refreshLongLivedToken: mockRefreshLongLivedToken,
 }));
 
@@ -390,6 +393,31 @@ describe("instagramProvider — refreshToken", () => {
     const out = await provider.refreshToken({ token: "old" });
     expect(mockRefreshLongLivedToken).toHaveBeenCalledWith("old");
     expect(out).toBe(refreshed);
+  });
+});
+
+describe("instagramProvider — getFollowerCount", () => {
+  it("delegates to getUserInfo and returns followers_count", async () => {
+    mockGetUserInfo.mockResolvedValue({ id: "1", username: "acct", followers_count: 4321 });
+    const out = await provider.getFollowerCount({
+      accessToken: "tok",
+      accountId: "acct",
+    });
+    expect(mockGetUserInfo).toHaveBeenCalledWith("tok");
+    expect(out).toBe(4321);
+  });
+
+  it("returns null when followers_count is not a number", async () => {
+    mockGetUserInfo.mockResolvedValue({ id: "1", username: "acct" });
+    const out = await provider.getFollowerCount({
+      accessToken: "tok",
+      accountId: "acct",
+    });
+    expect(out).toBeNull();
+  });
+
+  it("has follower-history backfill enabled", () => {
+    expect(provider.hasFollowerHistoryBackfill).toBe(true);
   });
 });
 

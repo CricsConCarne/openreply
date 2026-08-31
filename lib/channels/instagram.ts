@@ -4,6 +4,7 @@ import {
   getConversations,
   getRecentMediaComments,
   getUserFollowStatus,
+  getUserInfo,
   refreshLongLivedToken,
   sendCommentReply,
   sendDirectMessage,
@@ -25,6 +26,7 @@ import type {
   ChannelPost,
   ChannelProvider,
   GetConversationsParams,
+  GetFollowerCountParams,
   GetFollowStatusParams,
   GetRecentCommentsParams,
   ListPostsParams,
@@ -49,6 +51,7 @@ import type {
 export const instagramProvider: ChannelProvider = {
   platform: SocialPlatform.INSTAGRAM,
   hasFollowGate: true,
+  hasFollowerHistoryBackfill: true,
 
   sendPrivateReply(p: SendPrivateReplyParams) {
     return sendPrivateReply(p.accessToken, p.accountId, p.commentId, p.message);
@@ -130,6 +133,13 @@ export const instagramProvider: ChannelProvider = {
 
   getFollowStatus(p: GetFollowStatusParams) {
     return getUserFollowStatus(p.accessToken, p.recipientId);
+  },
+
+  async getFollowerCount(p: GetFollowerCountParams): Promise<number | null> {
+    const info = await getUserInfo(p.accessToken);
+    return typeof info.followers_count === "number"
+      ? info.followers_count
+      : null;
   },
 
   refreshToken(p: RefreshTokenParams) {

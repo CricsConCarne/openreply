@@ -48,6 +48,19 @@ export interface ChannelProvider {
   /** null = the follow status could not be determined (e.g. a transient API error). */
   getFollowStatus(p: GetFollowStatusParams): Promise<boolean | null>;
 
+  /**
+   * Current follower/fan total for the account (Instagram `followers_count`,
+   * Facebook Page `fan_count`). null = the platform did not return a number.
+   */
+  getFollowerCount(p: GetFollowerCountParams): Promise<number | null>;
+
+  /**
+   * Whether the daily follower snapshot can reconstruct back-history for this
+   * platform. Only Instagram exposes the follower_count insight the backfill
+   * reads; Facebook has no equivalent, so the cron skips backfill for it.
+   */
+  readonly hasFollowerHistoryBackfill: boolean;
+
   /** null = refreshing tokens is a no-op on this platform. */
   refreshToken(p: RefreshTokenParams): Promise<TokenRefresh | null>;
 }
@@ -201,6 +214,11 @@ export interface SubscribeWebhooksParams {
 export interface GetFollowStatusParams {
   accessToken: string;
   recipientId: string;
+}
+
+export interface GetFollowerCountParams {
+  accessToken: string;
+  accountId: string;
 }
 
 export interface RefreshTokenParams {

@@ -7,6 +7,7 @@ import type {
   ChannelPost,
   ChannelProvider,
   GetConversationsParams,
+  GetFollowerCountParams,
   GetRecentCommentsParams,
   LinkButton,
   ListPostsParams,
@@ -35,6 +36,9 @@ import type {
 export const facebookProvider: ChannelProvider = {
   platform: SocialPlatform.FACEBOOK,
   hasFollowGate: false,
+  // No follower_count-style insight exists for Pages, so there is nothing to
+  // reconstruct history from (FR-8) — the daily snapshot skips backfill.
+  hasFollowerHistoryBackfill: false,
 
   sendPrivateReply(p: SendPrivateReplyParams) {
     return sendMessage(p.accessToken, p.accountId, {
@@ -117,6 +121,16 @@ export const facebookProvider: ChannelProvider = {
   // signal — so follow status is never determinable.
   async getFollowStatus(): Promise<boolean | null> {
     return null;
+  },
+
+  async getFollowerCount(p: GetFollowerCountParams): Promise<number | null> {
+    const url = new URL(`${facebookGraphBase()}/${p.accountId}`);
+    url.searchParams.set("fields", "fan_count");
+    url.searchParams.set("access_token", p.accessToken);
+
+    const response = await fetch(url.toString());
+    const data = await handleResponse<{ fan_count?: number }>(response);
+    return typeof data.fan_count === "number" ? data.fan_count : null;
   },
 
   // Page tokens never expire, so refreshing is a no-op on this platform.

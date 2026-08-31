@@ -460,6 +460,35 @@ describe("facebookProvider — no-op trivials", () => {
   });
 });
 
+describe("facebookProvider — getFollowerCount", () => {
+  it("GETs ?fields=fan_count with the page token and returns fan_count", async () => {
+    const fetchMock = stubFetchJson({ fan_count: 9876, id: "page1" });
+    const out = await facebookProvider.getFollowerCount({
+      accessToken: "tok",
+      accountId: "page1",
+    });
+
+    expect(out).toBe(9876);
+    const url = new URL(fetchMock.mock.calls[0][0]);
+    expect(url.pathname).toBe("/v25.0/page1");
+    expect(url.searchParams.get("fields")).toBe("fan_count");
+    expect(url.searchParams.get("access_token")).toBe("tok");
+  });
+
+  it("returns null when fan_count is not a number", async () => {
+    stubFetchJson({ id: "page1" });
+    const out = await facebookProvider.getFollowerCount({
+      accessToken: "tok",
+      accountId: "page1",
+    });
+    expect(out).toBeNull();
+  });
+
+  it("has follower-history backfill disabled (FR-8)", () => {
+    expect(facebookProvider.hasFollowerHistoryBackfill).toBe(false);
+  });
+});
+
 describe("resolveChannel(FACEBOOK)", () => {
   it("returns the fully-implemented Facebook provider", () => {
     expect(resolveChannel(SocialPlatform.FACEBOOK)).toBe(facebookProvider);
