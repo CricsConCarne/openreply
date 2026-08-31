@@ -33,8 +33,10 @@ x-app-env: &app-env
   REDIS_URL: ${REDIS_URL}
   RESEND_API_KEY: ${RESEND_API_KEY}
   EMAIL_FROM: ${EMAIL_FROM}
+  EMAIL_SERVER: ${EMAIL_SERVER:-}
   INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
   INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
+  FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
   FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
   # Comment-reconciler tuning. Defaults here mirror the code's own fallbacks, so
   # leaving them out of the env file changes nothing.
