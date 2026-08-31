@@ -4,7 +4,12 @@ function instagramGraphBase() {
   return `https://graph.instagram.com/${getMetaGraphApiVersion()}`;
 }
 
-function facebookGraphBase() {
+/**
+ * Base URL for the Facebook Graph dialect (`graph.facebook.com`). Exported as
+ * the single authoritative copy: the Facebook OAuth and channel-provider modules
+ * build their request URLs from this rather than re-deriving the host.
+ */
+export function facebookGraphBase() {
   return `https://graph.facebook.com/${getMetaGraphApiVersion()}`;
 }
 
@@ -41,10 +46,15 @@ export class PermissionError extends MetaApiError {
   }
 }
 
-interface GraphApiError {
-  error: {
+/**
+ * The error envelope both Graph dialects (`graph.instagram.com` and
+ * `graph.facebook.com`) return. Exported so the Facebook modules share this one
+ * definition instead of re-declaring it.
+ */
+export interface GraphApiError {
+  error?: {
     message: string;
-    type: string;
+    type?: string;
     code: number;
     error_subcode?: number;
     fbtrace_id?: string;
@@ -108,7 +118,12 @@ interface TokenResponse {
   expires_in?: number;
 }
 
-async function handleResponse<T>(response: Response): Promise<T> {
+/**
+ * Parse a Graph API response, throwing the right {@link MetaApiError} subclass
+ * from Meta's error body. Exported as the single authoritative response handler
+ * shared by both Graph dialects (Instagram and Facebook).
+ */
+export async function handleResponse<T>(response: Response): Promise<T> {
   const data = await response.json();
 
   if (!response.ok || (data as GraphApiError).error) {

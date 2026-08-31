@@ -399,8 +399,8 @@ describe("resolveChannel", () => {
   });
 
   it("throws for an unregistered platform", () => {
-    expect(() => resolveChannel(SocialPlatform.FACEBOOK)).toThrow(
-      /No channel provider registered/
-    );
+    expect(() =>
+      resolveChannel("TIKTOK" as unknown as SocialPlatform)
+    ).toThrow(/No channel provider registered/);
   });
 });
