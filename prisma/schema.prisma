@@ -77,7 +77,7 @@ model Workspace {
 
   members           WorkspaceMember[]
   invitations       WorkspaceInvitation[]
-  instagramAccounts InstagramAccount[]
+  instagramAccounts SocialAccount[]
   automations       Automation[]
   dmLogs            DmLog[]
   trackedLinks      TrackedLink[]
@@ -124,17 +124,18 @@ model WorkspaceInvitation {
   @@index([status])
 }
 
-model InstagramAccount {
-  id                String   @id @default(cuid())
+model SocialAccount {
+  id                String         @id @default(cuid())
   workspaceId       String
-  instagramId       String   @unique
+  platform          SocialPlatform @default(INSTAGRAM)
+  externalId        String
   username          String
   name              String?
   accessToken       String
   tokenExpiresAt    DateTime?
-  webhookSubscribed Boolean  @default(false)
-  connectedAt       DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  webhookSubscribed Boolean        @default(false)
+  connectedAt       DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   automations Automation[]
@@ -142,6 +143,7 @@ model InstagramAccount {
   linkClicks  LinkClick[]
   followerSnapshots FollowerSnapshot[]
 
+  @@unique([platform, externalId])
   @@index([workspaceId])
 }
 
@@ -150,7 +152,7 @@ model InstagramAccount {
 /// record it here. One row per account per day.
 model FollowerSnapshot {
   id                 String   @id @default(cuid())
-  instagramAccountId String
+  socialAccountId    String
   /// Midnight UTC of the day this count belongs to.
   date               DateTime @db.Date
   followersCount     Int
@@ -159,16 +161,16 @@ model FollowerSnapshot {
   backfilled         Boolean  @default(false)
   createdAt          DateTime @default(now())
 
-  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  socialAccount SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
 
-  @@unique([instagramAccountId, date])
-  @@index([instagramAccountId, date])
+  @@unique([socialAccountId, date])
+  @@index([socialAccountId, date])
 }
 
 model Automation {
   id                 String   @id @default(cuid())
   workspaceId        String
-  instagramAccountId String
+  socialAccountId    String
 
   name           String
   goal           String?
@@ -207,13 +209,13 @@ model Automation {
   updatedAt DateTime @updatedAt
 
   workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  socialAccount    SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   dmLogs           DmLog[]
   trackedLinks     TrackedLink[]
   linkClicks       LinkClick[]
 
   @@index([workspaceId])
-  @@index([instagramAccountId])
+  @@index([socialAccountId])
   @@index([postId])
 }
 
@@ -221,7 +223,7 @@ model DmLog {
   id                 String     @id @default(cuid())
   workspaceId        String
   automationId       String
-  instagramAccountId String
+  socialAccountId    String
 
   commenterId   String
   commenterName String?
@@ -244,12 +246,12 @@ model DmLog {
 
   workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   automation       Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
-  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  socialAccount    SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
 
   @@unique([automationId, commentId])
   @@index([workspaceId])
   @@index([automationId])
-  @@index([instagramAccountId])
+  @@index([socialAccountId])
   @@index([status])
 }
 
@@ -261,12 +263,12 @@ model DmLog {
 // ones every cycle.
 model ProcessedComment {
   id                 String   @id @default(cuid())
-  instagramAccountId String
+  socialAccountId    String
   commentId          String   @unique
   source             String // "WEBHOOK" | "POLLING"
   seenAt             DateTime @default(now())
 
-  @@index([instagramAccountId])
+  @@index([socialAccountId])
 }
 
 model TrackedLink {
@@ -291,7 +293,7 @@ model LinkClick {
   id                 String   @id @default(cuid())
   workspaceId        String
   automationId       String
-  instagramAccountId String
+  socialAccountId    String
   trackedLinkId      String
   ipHash             String?
   userAgent          String?
@@ -300,12 +302,12 @@ model LinkClick {
 
   workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   automation       Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
-  instagramAccount InstagramAccount @relation(fields: [instagramAccountId], references: [id], onDelete: Cascade)
+  socialAccount    SocialAccount    @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   trackedLink      TrackedLink      @relation(fields: [trackedLinkId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId])
   @@index([automationId])
-  @@index([instagramAccountId])
+  @@index([socialAccountId])
   @@index([trackedLinkId])
   @@index([createdAt])
   @@index([workspaceId, createdAt])
@@ -343,6 +345,11 @@ model OperationalEvent {
   @@index([source])
   @@index([level])
   @@index([createdAt])
+}
+
+enum SocialPlatform {
+  INSTAGRAM
+  FACEBOOK
 }
 
 enum WorkspaceRole {

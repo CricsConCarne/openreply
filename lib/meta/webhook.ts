@@ -33,7 +33,7 @@ export function verifyWebhookSignature(
 }
 
 export interface WebhookCommentEvent {
-  instagramAccountId: string;
+  externalAccountId: string;
   commentId: string;
   commentText: string;
   commenterId: string;
@@ -88,21 +88,21 @@ interface WebhookEntry {
 }
 
 export interface WebhookMessageEvent {
-  instagramAccountId: string;
+  externalAccountId: string;
   messageId: string;
   messageText: string;
   senderId: string;
 }
 
 export interface WebhookPostbackEvent {
-  instagramAccountId: string;
+  externalAccountId: string;
   userId: string;
   payload: string;
   mid?: string;
 }
 
 export interface WebhookReadEvent {
-  instagramAccountId: string;
+  externalAccountId: string;
   userId: string;
   watermark?: number;
 }
@@ -147,7 +147,7 @@ export function parseCommentEvents(payload: WebhookPayload): WebhookCommentEvent
       }
 
       events.push({
-        instagramAccountId: entry.id,
+        externalAccountId: entry.id,
         commentId,
         commentText: value.text ?? "",
         commenterId,
@@ -183,7 +183,7 @@ export function parsePostbackEvents(
       if (userId === accountId) continue;
 
       events.push({
-        instagramAccountId: accountId,
+        externalAccountId: accountId,
         userId,
         payload: postbackPayload,
         mid: messaging.postback?.mid,
@@ -229,7 +229,7 @@ export function parseMessageEvents(
       if (senderId === accountId) continue;
 
       events.push({
-        instagramAccountId: accountId,
+        externalAccountId: accountId,
         messageId,
         messageText: text,
         senderId,
@@ -261,7 +261,7 @@ export function parseReadEvents(payload: WebhookPayload): WebhookReadEvent[] {
       if (userId === accountId) continue;
 
       events.push({
-        instagramAccountId: accountId,
+        externalAccountId: accountId,
         userId,
         watermark: messaging.read.watermark,
       });

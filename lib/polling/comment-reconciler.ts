@@ -26,6 +26,7 @@
  */
 
 import { prisma } from "@/lib/db/client";
+import type { SocialPlatform } from "@/app/generated/prisma/client";
 import { getDMQueue } from "@/lib/queue/client";
 import {
   getRecentMediaComments,
@@ -81,10 +82,11 @@ export async function reconcileComments(): Promise<void> {
       wholeWordMatch: true,
       publicReplyEnabled: true,
       workspaceId: true,
-      instagramAccount: {
+      socialAccount: {
         select: {
           id: true,
-          instagramId: true,
+          platform: true,
+          externalId: true,
           username: true,
           accessToken: true,
         },
@@ -120,9 +122,10 @@ async function sweepCampaign(
     keywords: string[];
     wholeWordMatch: boolean;
     publicReplyEnabled: boolean;
-    instagramAccount: {
+    socialAccount: {
       id: string;
-      instagramId: string;
+      platform: SocialPlatform;
+      externalId: string;
       username: string;
       accessToken: string;
     };
@@ -130,7 +133,7 @@ async function sweepCampaign(
   sinceMs: number,
   tokenCache: Map<string, string | null>
 ): Promise<SweepStat> {
-  const account = automation.instagramAccount;
+  const account = automation.socialAccount;
   const stat: SweepStat = {
     campaign: automation.name,
     keywords: automation.matchAnyWord
@@ -187,7 +190,7 @@ async function sweepCampaign(
     // keyword, and (c) have no reply from the account owner yet.
     const needsAction = comments.filter((c) => {
       const authorId = c.from?.id;
-      if (!authorId || authorId === account.instagramId) return false;
+      if (!authorId || authorId === account.externalId) return false;
 
       const matched = automation.matchAnyWord
         ? true
@@ -197,7 +200,7 @@ async function sweepCampaign(
       stat.matched += 1;
 
       const ownerReplied = (c.replies?.data ?? []).some(
-        (r) => r.from?.id === account.instagramId
+        (r) => r.from?.id === account.externalId
       );
       if (ownerReplied) {
         stat.alreadyReplied += 1;
@@ -238,7 +241,8 @@ async function sweepCampaign(
       // above (owner-reply + DmLog guards) and the worker is idempotent
       // (publicReplySentAt / SENT), so re-processing a comment is safe.
       await queue.add("process-comment", {
-        instagramAccountId: account.instagramId,
+        externalAccountId: account.externalId,
+        platform: account.platform,
         commentId: c.id,
         commentText: c.text ?? "",
         commenterId: c.from!.id,

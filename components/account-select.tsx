@@ -3,7 +3,7 @@
 export interface AccountOption {
   id: string;
   username: string;
-  instagramId: string;
+  externalId: string;
   name?: string | null;
 }
 

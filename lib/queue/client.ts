@@ -6,6 +6,7 @@
 
 import { Queue } from "bullmq";
 import Redis from "ioredis";
+import type { SocialPlatform } from "@/app/generated/prisma/client";
 
 let connection: Redis | null = null;
 
@@ -23,7 +24,8 @@ export function getRedisConnection(): Redis {
 export type CommentSource = "WEBHOOK" | "POLLING";
 
 export interface ProcessCommentJob {
-  instagramAccountId: string;
+  externalAccountId: string;
+  platform: SocialPlatform;
   commentId: string;
   commentText: string;
   commenterId: string;
@@ -40,7 +42,8 @@ export interface ProcessCommentJob {
 
 // Delivered when a user taps an opening DM's button — carries the reveal target.
 export interface ProcessPostbackJob {
-  instagramAccountId: string;
+  externalAccountId: string;
+  platform: SocialPlatform;
   userId: string;
   payload: string;
   mid?: string;
@@ -51,7 +54,8 @@ export interface ProcessPostbackJob {
 // Enqueued with a delay (followUpDelayMinutes) so it can fire later, not just
 // immediately.
 export interface ProcessFollowUpJob {
-  instagramAccountId: string;
+  externalAccountId: string;
+  platform: SocialPlatform;
   userId: string;
   automationId: string;
   commenterName?: string | null;
@@ -60,7 +64,8 @@ export interface ProcessFollowUpJob {
 // An inbound DM from a user. Campaigns with `dmTriggerEnabled` whose keywords
 // match the text reply to the sender.
 export interface ProcessMessageJob {
-  instagramAccountId: string;
+  externalAccountId: string;
+  platform: SocialPlatform;
   messageId: string;
   messageText: string;
   senderId: string;

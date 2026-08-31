@@ -34,10 +34,10 @@ interface Campaign {
   followPromptButtonLabel: string | null;
   isActive: boolean;
   wholeWordMatch: boolean;
-  instagramAccountId: string;
-  instagramAccount: {
+  socialAccountId: string;
+  socialAccount: {
     username: string;
-    instagramId: string;
+    externalId: string;
   };
   reportShareSlug: string | null;
   reportShareEnabled: boolean;
@@ -89,7 +89,7 @@ export default function CampaignsPage() {
     try {
       const params = new URLSearchParams();
       if (selectedAccountId !== "all") {
-        params.set("instagramAccountId", selectedAccountId);
+        params.set("socialAccountId", selectedAccountId);
       }
       const res = await fetch(
         `/api/automations${params.size ? `?${params}` : ""}`,
@@ -127,7 +127,7 @@ export default function CampaignsPage() {
     if (automations.length === 0) return;
     let cancelled = false;
     const accountIds = Array.from(
-      new Set(automations.map((a) => a.instagramAccountId))
+      new Set(automations.map((a) => a.socialAccountId))
     ).sort();
     const cacheKey = `ig-media:${accountIds.join(",")}`;
 
@@ -145,7 +145,7 @@ export default function CampaignsPage() {
 
     Promise.all(
       accountIds.map((accountId) =>
-        fetch(`/api/instagram/posts?instagramAccountId=${accountId}&limit=50`)
+        fetch(`/api/instagram/posts?socialAccountId=${accountId}&limit=50`)
           .then((res) => res.json())
           .then((payload) =>
             payload.success
@@ -246,7 +246,7 @@ export default function CampaignsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: `${auto.name} copy`,
-          instagramAccountId: auto.instagramAccountId,
+          socialAccountId: auto.socialAccountId,
           postId: specific ? auto.postId : null,
           postUrl: specific ? auto.postUrl : null,
           matchAnyPost: auto.matchAnyPost,
@@ -444,7 +444,7 @@ export default function CampaignsPage() {
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <h3 className="text-sm font-semibold truncate">{auto.name}</h3>
                   <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-xs text-muted">
-                    @{auto.instagramAccount.username}
+                    @{auto.socialAccount.username}
                   </span>
                   <span
                     className={`text-xs px-2 py-0.5 rounded-full font-medium ${

@@ -28,7 +28,7 @@ const {
       update: vi.fn(),
       create: vi.fn(),
     },
-    instagramAccount: {
+    socialAccount: {
       findUnique: vi.fn(),
     },
     operationalEvent: {
@@ -135,7 +135,7 @@ const usagePeriodStart = new Date("2026-05-01T00:00:00.000Z");
 const mockAutomation = {
   id: "auto_789",
   workspaceId: "workspace_123",
-  instagramAccountId: "ig_account_row_1",
+  socialAccountId: "ig_account_row_1",
   postId: "media_101",
   keywords: ["LINK", "PRICE"],
   dmMessage: "Hey {username}! Here is the link: https://example.com",
@@ -150,9 +150,9 @@ const mockAutomation = {
   publicReplyEnabled: false,
   publicReplyMessage: null,
   publicReplyMessages: [],
-  instagramAccount: {
+  socialAccount: {
     id: "ig_account_row_1",
-    instagramId: "ig_456",
+    externalId: "ig_456",
     accessToken: "encrypted_token_abc",
   },
   workspace: {
@@ -162,7 +162,8 @@ const mockAutomation = {
 };
 
 const mockJobData = {
-  instagramAccountId: "ig_456",
+  externalAccountId: "ig_456",
+  platform: "INSTAGRAM",
   commentId: "comment_555",
   commentText: "I want the LINK!",
   commenterId: "commenter_999",
@@ -195,7 +196,8 @@ function createMockJob(data: Record<string, unknown> = mockJobData) {
 
 function createMockPostbackJob(
   data: Record<string, unknown> = {
-    instagramAccountId: "ig_456",
+    externalAccountId: "ig_456",
+    platform: "INSTAGRAM",
     userId: "commenter_999",
     payload: "reveal:auto_789",
   }
@@ -225,7 +227,7 @@ beforeEach(() => {
   );
   mockPrisma.dmLog.upsert.mockResolvedValue({});
   mockPrisma.dmLog.update.mockResolvedValue({});
-  mockPrisma.instagramAccount.findUnique.mockResolvedValue({
+  mockPrisma.socialAccount.findUnique.mockResolvedValue({
     workspaceId: "workspace_123",
   });
   mockPrisma.operationalEvent.create.mockResolvedValue({});
@@ -315,10 +317,10 @@ describe("DM Worker — Full Pipeline", () => {
       where: {
         OR: [{ postId: "media_101" }, { matchAnyPost: true }],
         isActive: true,
-        instagramAccount: { instagramId: "ig_456" },
+        socialAccount: { platform: "INSTAGRAM", externalId: "ig_456" },
       },
       include: {
-        instagramAccount: true,
+        socialAccount: true,
         workspace: true,
         trackedLinks: {
           select: {
@@ -498,8 +500,8 @@ describe("DM Worker — Full Pipeline", () => {
     mockPrisma.automation.findMany.mockResolvedValue([
       {
         ...mockAutomation,
-        instagramAccount: {
-          ...mockAutomation.instagramAccount,
+        socialAccount: {
+          ...mockAutomation.socialAccount,
           accessToken: null,
         },
       },
@@ -523,7 +525,8 @@ describe("DM Worker — Full Pipeline", () => {
   it("should use 'there' when commenter name is not available", async () => {
     const processor = getProcessor();
     const jobDataWithoutName = {
-      instagramAccountId: mockJobData.instagramAccountId,
+      externalAccountId: mockJobData.externalAccountId,
+      platform: mockJobData.platform,
       commentId: mockJobData.commentId,
       commentText: mockJobData.commentText,
       commenterId: mockJobData.commenterId,
@@ -693,7 +696,7 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(
       createMockPostbackJob({
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         userId: "commenter_999",
         payload: "reveal:auto_789",
         fallback: true,
@@ -730,7 +733,7 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(
       createMockPostbackJob({
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         userId: "commenter_999",
         payload: "reveal:auto_789",
         fallback: true,
@@ -753,7 +756,7 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(
       createMockPostbackJob({
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         userId: "commenter_999",
         payload: "reveal:auto_789",
         fallback: true,
@@ -778,7 +781,7 @@ describe("DM Worker — Full Pipeline", () => {
     const processor = getProcessor();
     await processor(
       createMockPostbackJob({
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
         userId: "commenter_999",
         payload: "reveal:auto_789",
         fallback: true,
@@ -809,7 +812,7 @@ describe("DM Worker — Full Pipeline", () => {
     await expect(
       processor(
         createMockPostbackJob({
-          instagramAccountId: "ig_456",
+          externalAccountId: "ig_456",
           userId: "commenter_999",
           payload: "reveal:auto_789",
           fallback: true,
@@ -833,7 +836,7 @@ describe("DM Worker — Full Pipeline", () => {
     await expect(
       processor(
         createMockPostbackJob({
-          instagramAccountId: "ig_456",
+          externalAccountId: "ig_456",
           userId: "commenter_999",
           payload: "reveal:auto_789",
         })
@@ -941,7 +944,8 @@ describe("DM Worker — DM keyword trigger", () => {
     return {
       name: "process-message",
       data: {
-        instagramAccountId: "ig_456",
+        externalAccountId: "ig_456",
+        platform: "INSTAGRAM",
         messageId: "mid_abc",
         messageText: "can I get the LINK?",
         senderId: "commenter_999",
