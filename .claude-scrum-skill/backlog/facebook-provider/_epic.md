@@ -1,7 +1,7 @@
 ---
 title: Facebook Provider — Graph implementation
 slug: facebook-provider
-status: open
+status: closed
 subdomain: supporting
 created: 2026-08-30T18:10:00Z
 ---

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { SocialPlatform } from "@/app/generated/prisma/client";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { getWorkspaceSocialAccount } from "@/lib/social-accounts";
+import { resolveChannel } from "@/lib/channels";
 import {
   getAllUserMedia,
   getMediaInsights,
@@ -12,6 +14,7 @@ import { decryptToken } from "@/lib/meta/oauth";
 import {
   ensureFollowerHistory,
   getFollowerHistory,
+  recordFollowerSnapshot,
   type FollowerHistoryPoint,
 } from "@/lib/reports/follower-history";
 
@@ -56,17 +59,19 @@ export interface OverviewPost {
   thumbnailUrl: string | null;
   mediaType: string;
   timestamp: string;
+  // Per-post insight metrics. null means the metric is unavailable for this
+  // platform (Facebook exposes none of them through this route).
   views: number | null;
   reach: number | null;
-  likes: number;
-  comments: number;
+  likes: number | null;
+  comments: number | null;
   saved: number | null;
   shares: number | null;
 }
 
 export interface OverviewResponse {
-  account: { id: string; username: string };
-  accounts: Array<{ id: string; username: string }>;
+  account: { id: string; username: string; platform: SocialPlatform };
+  accounts: Array<{ id: string; username: string; platform: SocialPlatform }>;
   requestedCount: "all" | number;
   truncated: boolean;
   insightsAvailable: boolean;
@@ -121,22 +126,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Facebook Pages expose no per-post insights and no follower-count backfill
+  // through this route, so they take a separate path that never touches the
+  // Instagram Graph calls below. Instagram behaviour is left untouched.
+  if (account.platform === "FACEBOOK") {
+    return facebookOverview(request, workspaceId, account);
+  }
+
   try {
     const accessToken = decryptToken(account.accessToken);
 
-    // `count` is either "all" or a positive integer (last N posts).
-    const countParam = request.nextUrl.searchParams.get("count");
-    const isAll = countParam === "all";
-    const parsedCount = countParam ? Number.parseInt(countParam, 10) : NaN;
-    const requestedCount: "all" | number = isAll
-      ? "all"
-      : Number.isFinite(parsedCount)
-        ? Math.max(parsedCount, 1)
-        : 50;
-
-    const target = isAll
-      ? MAX_POSTS
-      : Math.min(requestedCount as number, MAX_POSTS);
+    const { requestedCount, target } = parseCountParam(request);
 
     const media = await getAllUserMedia(accessToken, target);
     const truncated = media.length >= MAX_POSTS;
@@ -188,14 +188,16 @@ export async function GET(request: NextRequest) {
 
     const totals = posts.reduce(
       (acc, p) => {
+        const likes = p.likes ?? 0;
+        const comments = p.comments ?? 0;
         acc.posts += 1;
         acc.views += p.views ?? 0;
         acc.reach += p.reach ?? 0;
-        acc.likes += p.likes;
-        acc.comments += p.comments;
+        acc.likes += likes;
+        acc.comments += comments;
         acc.saved += p.saved ?? 0;
         acc.shares += p.shares ?? 0;
-        acc.interactions += p.likes + p.comments + (p.saved ?? 0) + (p.shares ?? 0);
+        acc.interactions += likes + comments + (p.saved ?? 0) + (p.shares ?? 0);
         return acc;
       },
       {
@@ -210,11 +212,7 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    const accounts = await prisma.socialAccount.findMany({
-      where: { workspaceId },
-      orderBy: { connectedAt: "desc" },
-      select: { id: true, username: true },
-    });
+    const accounts = await listWorkspaceAccounts(workspaceId);
 
     // Followers is a point-in-time figure and deliberately not part of
     // `totals`, which sums over the selected posts. A failure here must not
@@ -235,7 +233,11 @@ export async function GET(request: NextRequest) {
     }
 
     const data: OverviewResponse = {
-      account: { id: account.id, username: account.username },
+      account: {
+        id: account.id,
+        username: account.username,
+        platform: account.platform,
+      },
       accounts,
       requestedCount,
       truncated,
@@ -254,4 +256,158 @@ export async function GET(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/** Parse the `count` query param into a display value and a fetch ceiling. */
+function parseCountParam(request: NextRequest): {
+  requestedCount: "all" | number;
+  target: number;
+} {
+  // `count` is either "all" or a positive integer (last N posts).
+  const countParam = request.nextUrl.searchParams.get("count");
+  const isAll = countParam === "all";
+  const parsedCount = countParam ? Number.parseInt(countParam, 10) : NaN;
+  const requestedCount: "all" | number = isAll
+    ? "all"
+    : Number.isFinite(parsedCount)
+      ? Math.max(parsedCount, 1)
+      : 50;
+
+  const target = isAll
+    ? MAX_POSTS
+    : Math.min(requestedCount as number, MAX_POSTS);
+
+  return { requestedCount, target };
+}
+
+function listWorkspaceAccounts(workspaceId: string) {
+  return prisma.socialAccount.findMany({
+    where: { workspaceId },
+    orderBy: { connectedAt: "desc" },
+    select: { id: true, username: true, platform: true },
+  });
+}
+
+const EMPTY_TOTALS: OverviewResponse["totals"] = {
+  posts: 0,
+  views: 0,
+  reach: 0,
+  likes: 0,
+  comments: 0,
+  saved: 0,
+  shares: 0,
+  interactions: 0,
+};
+
+interface OverviewAccount {
+  id: string;
+  username: string;
+  externalId: string;
+  accessToken: string;
+  platform: SocialPlatform;
+}
+
+/**
+ * Overview for a Facebook Page. The Page's follower series is its `fan_count`
+ * (page likes), a different metric from Instagram followers — the client labels
+ * it accordingly. Facebook exposes no per-post insights here, so metric fields
+ * come back null (rendered as "unavailable") rather than a misleading zero.
+ */
+async function facebookOverview(
+  request: NextRequest,
+  workspaceId: string,
+  account: OverviewAccount
+): Promise<NextResponse> {
+  try {
+    const accessToken = decryptToken(account.accessToken);
+    const { requestedCount, target } = parseCountParam(request);
+
+    const facebook = resolveChannel("FACEBOOK");
+    const channelPosts = await facebook.listPosts({
+      accessToken,
+      max: target,
+    });
+    const posts = channelPosts.slice(0, target).map(toFacebookOverviewPost);
+    const truncated = channelPosts.length >= MAX_POSTS;
+
+    const accounts = await listWorkspaceAccounts(workspaceId);
+    const { followers, followerHistory } = await facebookFollowerSeries(
+      facebook,
+      accessToken,
+      account
+    );
+
+    const data: OverviewResponse = {
+      account: {
+        id: account.id,
+        username: account.username,
+        platform: account.platform,
+      },
+      accounts,
+      requestedCount,
+      truncated,
+      // No per-post insights on Facebook Pages via this route.
+      insightsAvailable: false,
+      followers,
+      followerHistory,
+      totals: { ...EMPTY_TOTALS, posts: posts.length },
+      posts,
+    };
+
+    return NextResponse.json({ success: true, data });
+  } catch (err) {
+    console.error("[Facebook Overview] Error:", err);
+    return NextResponse.json(
+      { success: false, error: "Failed to load Facebook overview" },
+      { status: 500 }
+    );
+  }
+}
+
+/** Current fan count plus stored history; a failure degrades to nulls/empty. */
+async function facebookFollowerSeries(
+  facebook: ReturnType<typeof resolveChannel>,
+  accessToken: string,
+  account: OverviewAccount
+): Promise<{ followers: number | null; followerHistory: FollowerHistoryPoint[] }> {
+  try {
+    const followers = await facebook.getFollowerCount({
+      accessToken,
+      accountId: account.externalId,
+    });
+    if (followers !== null) {
+      await recordFollowerSnapshot(account.id, followers);
+    }
+    const followerHistory = await getFollowerHistory(account.id);
+    return { followers, followerHistory };
+  } catch (err) {
+    console.warn(
+      "[Facebook Overview] Follower history unavailable:",
+      err instanceof Error ? err.message : err
+    );
+    return { followers: null, followerHistory: [] };
+  }
+}
+
+function toFacebookOverviewPost(post: {
+  id: string;
+  caption?: string;
+  permalink?: string;
+  thumbnailUrl?: string;
+  timestamp: string;
+}): OverviewPost {
+  return {
+    id: post.id,
+    caption: post.caption?.trim().slice(0, 120) ?? null,
+    permalink: post.permalink ?? null,
+    thumbnailUrl: post.thumbnailUrl ?? null,
+    mediaType: "Facebook",
+    timestamp: post.timestamp,
+    views: null,
+    reach: null,
+    likes: null,
+    comments: null,
+    saved: null,
+    shares: null,
+  };
 }

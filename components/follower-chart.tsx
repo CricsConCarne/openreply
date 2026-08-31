@@ -22,12 +22,40 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { SocialPlatform } from "@/app/generated/prisma/client";
 
 export interface FollowerChartPoint {
   date: string;
   followers: number;
   delta: number | null;
 }
+
+/**
+ * The series holds a different metric per platform: Instagram followers vs. a
+ * Facebook Page's fan count (page likes). Labels make the distinction explicit
+ * so a viewer never reads Facebook page likes as Instagram followers.
+ */
+interface SeriesLabels {
+  heading: string;
+  nounLower: string;
+  nounTitle: string;
+  collecting: string;
+}
+
+const SERIES_LABELS: Record<SocialPlatform, SeriesLabels> = {
+  INSTAGRAM: {
+    heading: "Followers over time",
+    nounLower: "followers",
+    nounTitle: "Followers",
+    collecting: "Collecting follower history",
+  },
+  FACEBOOK: {
+    heading: "Page likes over time",
+    nounLower: "page likes",
+    nounTitle: "Page likes",
+    collecting: "Collecting page-likes history",
+  },
+};
 
 // Colors read against the light chart surface (#ffffff): the accent line clears
 // 3:1 contrast and grid/axis text match the muted/border tokens. See globals.css.
@@ -56,9 +84,11 @@ function formatSigned(n: number): string {
 function ChartTooltip({
   active,
   payload,
+  noun,
 }: {
   active?: boolean;
   payload?: Array<{ payload: FollowerChartPoint }>;
+  noun: string;
 }) {
   if (!active || !payload?.length) return null;
   const point = payload[0].payload;
@@ -67,7 +97,7 @@ function ChartTooltip({
     <div className="rounded border border-border bg-surface px-3 py-2 text-xs shadow-lg">
       <p className="text-muted">{formatDay(point.date)}</p>
       <p className="mt-1 font-semibold text-foreground">
-        {point.followers.toLocaleString()} followers
+        {point.followers.toLocaleString()} {noun}
       </p>
       {point.delta !== null && point.delta !== 0 && (
         <p className={point.delta > 0 ? "text-success" : "text-error"}>
@@ -81,11 +111,14 @@ function ChartTooltip({
 export default function FollowerChart({
   data,
   followers,
+  platform = "INSTAGRAM",
 }: {
   data: FollowerChartPoint[];
   followers: number | null;
+  platform?: SocialPlatform;
 }) {
   const [showTable, setShowTable] = useState(false);
+  const labels = SERIES_LABELS[platform];
 
   const current = followers ?? data.at(-1)?.followers ?? null;
 
@@ -99,7 +132,7 @@ export default function FollowerChart({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-foreground">
-            Followers over time
+            {labels.heading}
           </h2>
           <p className="mt-1 text-sm text-muted">
             {current === null
@@ -129,7 +162,7 @@ export default function FollowerChart({
 
       {data.length < 2 ? (
         <div className="mt-6 rounded border border-border bg-surface/60 p-6 text-center">
-          <p className="text-sm text-foreground">Collecting follower history</p>
+          <p className="text-sm text-foreground">{labels.collecting}</p>
           <p className="mt-1 text-sm text-muted">
             {data.length === 0
               ? "No snapshots recorded yet."
@@ -144,7 +177,9 @@ export default function FollowerChart({
             <thead>
               <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-zinc-500">
                 <th className="py-2 pr-4 font-medium">Date</th>
-                <th className="py-2 px-3 font-medium text-right">Followers</th>
+                <th className="py-2 px-3 font-medium text-right">
+                  {labels.nounTitle}
+                </th>
                 <th className="py-2 pl-3 font-medium text-right">Change</th>
               </tr>
             </thead>
@@ -196,7 +231,7 @@ export default function FollowerChart({
                 domain={["dataMin - 5", "dataMax + 5"]}
               />
               <Tooltip
-                content={<ChartTooltip />}
+                content={<ChartTooltip noun={labels.nounLower} />}
                 cursor={{ stroke: GRID_COLOR, strokeWidth: 1 }}
               />
               <Line

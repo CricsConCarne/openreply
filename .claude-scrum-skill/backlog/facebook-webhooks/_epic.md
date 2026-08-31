@@ -1,7 +1,7 @@
 ---
 title: Facebook Webhooks — dispatch + hard noise filter
 slug: facebook-webhooks
-status: open
+status: closed
 subdomain: supporting
 created: 2026-08-30T18:10:00Z
 ---

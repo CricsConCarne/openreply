@@ -20,7 +20,7 @@ export async function GET() {
   }
 
   const instagramAccounts = await prisma.socialAccount.findMany({
-    where: { workspaceId },
+    where: { workspaceId, platform: "INSTAGRAM" },
     orderBy: { connectedAt: "desc" },
     select: { id: true, username: true, externalId: true, name: true },
   });

@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import AccountSelect from "@/components/account-select";
 import StatCard from "@/components/stat-card";
 import FollowerChart from "@/components/follower-chart";
+import { PlatformBadge } from "@/components/platform-badge";
 import type { OverviewResponse } from "@/app/api/instagram/overview/route";
 
 function formatNumber(n: number | null): string {
@@ -104,23 +105,29 @@ export default function OverviewPage() {
 
   const { totals, posts, accounts, insightsAvailable, followers, followerHistory } =
     data;
+  const platform = data.account.platform;
+  const isFacebook = platform === "FACEBOOK";
+  const handle = isFacebook ? data.account.username : `@${data.account.username}`;
+  const followerNoun = isFacebook ? "page likes" : "followers";
 
   return (
     <div className="space-y-8">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <h1 className="text-lg font-semibold text-foreground">Overview</h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg font-semibold text-foreground">Overview</h1>
+            <PlatformBadge platform={platform} />
+          </div>
           <p className="text-sm text-muted mt-1">
             {data.requestedCount === "all" ? "All-time" : "Recent"} —{" "}
-            {totals.posts} post{totals.posts === 1 ? "" : "s"} from @
-            {data.account.username}
+            {totals.posts} post{totals.posts === 1 ? "" : "s"} from {handle}
             {data.truncated ? ` (capped at ${totals.posts})` : ""}
           </p>
           {followers !== null && (
             // Kept out of the tile row below: that row sums the selected posts,
             // whereas this is a current account-level total.
             <p className="mt-1 text-sm text-muted">
-              {followers.toLocaleString()} followers
+              {followers.toLocaleString()} {followerNoun}
             </p>
           )}
         </div>
@@ -155,36 +162,58 @@ export default function OverviewPage() {
         </div>
       </div>
 
-      {!insightsAvailable && (
-        <div className="panel rounded p-4 border border-border">
+      {/* Per-post engagement insights are Instagram-only; Facebook Pages don't
+          expose them through this route, so the tiles degrade to a clear
+          "unavailable" state instead of showing misleading zeros. */}
+      {isFacebook ? (
+        <div className="panel rounded p-6 border border-border text-center">
           <p className="text-sm text-foreground">
-            Views, reach, saved and shares need the insights permission.
+            Post insights aren&apos;t available on Facebook
           </p>
-          <p className="text-sm text-muted mt-1">
-            Reconnect your account to grant it — likes and comments are shown in
-            the meantime.
+          <p className="mt-1 text-sm text-muted">
+            Views, reach, likes, comments, saved and shares come from Instagram
+            media insights, which Facebook Pages don&apos;t provide here. Page
+            likes over time are shown below.
           </p>
-          <a
-            href="/api/instagram/connect"
-            className="mt-3 inline-block text-sm text-accent hover:underline"
-          >
-            Reconnect Instagram
-          </a>
         </div>
+      ) : (
+        <>
+          {!insightsAvailable && (
+            <div className="panel rounded p-4 border border-border">
+              <p className="text-sm text-foreground">
+                Views, reach, saved and shares need the insights permission.
+              </p>
+              <p className="text-sm text-muted mt-1">
+                Reconnect your account to grant it — likes and comments are
+                shown in the meantime.
+              </p>
+              <a
+                href="/api/instagram/connect"
+                className="mt-3 inline-block text-sm text-accent hover:underline"
+              >
+                Reconnect Instagram
+              </a>
+            </div>
+          )}
+
+          {/* Aggregate totals */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+            <StatCard label="Views" value={formatNumber(totals.views)} />
+            <StatCard label="Reach" value={formatNumber(totals.reach)} />
+            <StatCard label="Likes" value={formatNumber(totals.likes)} />
+            <StatCard label="Comments" value={formatNumber(totals.comments)} />
+            <StatCard label="Saved" value={formatNumber(totals.saved)} />
+            <StatCard label="Shares" value={formatNumber(totals.shares)} />
+          </div>
+        </>
       )}
 
-      {/* Aggregate totals */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
-        <StatCard label="Views" value={formatNumber(totals.views)} />
-        <StatCard label="Reach" value={formatNumber(totals.reach)} />
-        <StatCard label="Likes" value={formatNumber(totals.likes)} />
-        <StatCard label="Comments" value={formatNumber(totals.comments)} />
-        <StatCard label="Saved" value={formatNumber(totals.saved)} />
-        <StatCard label="Shares" value={formatNumber(totals.shares)} />
-      </div>
-
       {/* Follower trend — account-level, independent of the post range */}
-      <FollowerChart data={followerHistory} followers={followers} />
+      <FollowerChart
+        data={followerHistory}
+        followers={followers}
+        platform={platform}
+      />
 
       {/* Per-post table */}
       <div className="panel rounded p-4 sm:p-6">
@@ -195,16 +224,26 @@ export default function OverviewPage() {
           // Eight metric columns can't compress into a phone; let the table keep
           // its natural width and scroll inside the panel instead.
           <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-            <table className="w-full min-w-[720px] text-sm">
+            <table
+              className={`w-full text-sm ${isFacebook ? "" : "min-w-[720px]"}`}
+            >
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-zinc-500 border-b border-border">
                   <th className="py-2 pr-4 font-medium">Post</th>
-                  <th className="py-2 px-3 font-medium text-right">Views</th>
-                  <th className="py-2 px-3 font-medium text-right">Reach</th>
-                  <th className="py-2 px-3 font-medium text-right">Likes</th>
-                  <th className="py-2 px-3 font-medium text-right">Comments</th>
-                  <th className="py-2 px-3 font-medium text-right">Saved</th>
-                  <th className="py-2 px-3 font-medium text-right">Shares</th>
+                  {!isFacebook && (
+                    <>
+                      <th className="py-2 px-3 font-medium text-right">Views</th>
+                      <th className="py-2 px-3 font-medium text-right">Reach</th>
+                      <th className="py-2 px-3 font-medium text-right">Likes</th>
+                      <th className="py-2 px-3 font-medium text-right">
+                        Comments
+                      </th>
+                      <th className="py-2 px-3 font-medium text-right">Saved</th>
+                      <th className="py-2 px-3 font-medium text-right">
+                        Shares
+                      </th>
+                    </>
+                  )}
                   <th className="py-2 pl-3 font-medium text-right">Date</th>
                 </tr>
               </thead>
@@ -230,24 +269,28 @@ export default function OverviewPage() {
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-3 text-right text-muted">
-                      {formatNumber(p.views)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-muted">
-                      {formatNumber(p.reach)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-muted">
-                      {formatNumber(p.likes)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-muted">
-                      {formatNumber(p.comments)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-muted">
-                      {formatNumber(p.saved)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-muted">
-                      {formatNumber(p.shares)}
-                    </td>
+                    {!isFacebook && (
+                      <>
+                        <td className="py-3 px-3 text-right text-muted">
+                          {formatNumber(p.views)}
+                        </td>
+                        <td className="py-3 px-3 text-right text-muted">
+                          {formatNumber(p.reach)}
+                        </td>
+                        <td className="py-3 px-3 text-right text-muted">
+                          {formatNumber(p.likes)}
+                        </td>
+                        <td className="py-3 px-3 text-right text-muted">
+                          {formatNumber(p.comments)}
+                        </td>
+                        <td className="py-3 px-3 text-right text-muted">
+                          {formatNumber(p.saved)}
+                        </td>
+                        <td className="py-3 px-3 text-right text-muted">
+                          {formatNumber(p.shares)}
+                        </td>
+                      </>
+                    )}
                     <td className="py-3 pl-3 text-right text-zinc-500">
                       {formatDate(p.timestamp)}
                     </td>
