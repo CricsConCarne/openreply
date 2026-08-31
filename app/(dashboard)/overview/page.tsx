@@ -154,6 +154,7 @@ export default function OverviewPage() {
                 id: a.id,
                 username: a.username,
                 externalId: a.id,
+                platform: a.platform,
               }))}
               value={selectedAccountId}
               onChange={handleAccountChange}

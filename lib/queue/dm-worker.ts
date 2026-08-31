@@ -333,11 +333,11 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commentId,
           matchedKeyword: matchResult.matchedKeyword,
           status: "FAILED",
-          errorMessage: "No Instagram access token available",
+          errorMessage: "No access token available for the connected account",
         },
         update: {
           status: "FAILED",
-          errorMessage: "No Instagram access token available",
+          errorMessage: "No access token available for the connected account",
         },
       });
       continue;
@@ -364,11 +364,11 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commentId,
           matchedKeyword: matchResult.matchedKeyword,
           status: "FAILED",
-          errorMessage: "Failed to decrypt Instagram access token",
+          errorMessage: "Failed to decrypt the account access token",
         },
         update: {
           status: "FAILED",
-          errorMessage: "Failed to decrypt Instagram access token",
+          errorMessage: "Failed to decrypt the account access token",
         },
       });
       continue;
@@ -481,7 +481,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         data: {
           status: "SKIPPED_DEDUP",
           matchedKeyword: matchResult.matchedKeyword,
-          errorMessage: `Another campaign (${privateReplyUsedBy.automation?.name ?? "unknown"}) already sent the one private reply Instagram allows for this comment`,
+          errorMessage: `Another campaign (${privateReplyUsedBy.automation?.name ?? "unknown"}) already sent the one private reply allowed for this comment`,
         },
       });
       continue;
@@ -546,7 +546,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           data: {
             status: "SKIPPED_RATE_LIMIT",
             matchedKeyword: matchResult.matchedKeyword,
-            errorMessage: "Hourly Instagram DM rate limit reached",
+            errorMessage: "Hourly DM rate limit reached",
           },
         });
         continue;
@@ -1084,11 +1084,11 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
         create: {
           ...logBase,
           status: "FAILED",
-          errorMessage: "No Instagram access token available",
+          errorMessage: "No access token available for the connected account",
         },
         update: {
           status: "FAILED",
-          errorMessage: "No Instagram access token available",
+          errorMessage: "No access token available for the connected account",
         },
       });
       continue;
@@ -1108,11 +1108,11 @@ async function processMessage(job: Job<ProcessMessageJob>): Promise<void> {
         create: {
           ...logBase,
           status: "FAILED",
-          errorMessage: "Failed to decrypt Instagram access token",
+          errorMessage: "Failed to decrypt the account access token",
         },
         update: {
           status: "FAILED",
-          errorMessage: "Failed to decrypt Instagram access token",
+          errorMessage: "Failed to decrypt the account access token",
         },
       });
       continue;
