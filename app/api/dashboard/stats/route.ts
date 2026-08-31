@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
       ? requestedInstagramAccountId
       : null;
   const accountFilter = selectedAccountId
-    ? { instagramAccountId: selectedAccountId }
+    ? { socialAccountId: selectedAccountId }
     : {};
 
   const [
@@ -58,24 +58,24 @@ export async function GET(request: NextRequest) {
         dmsSentThisPeriod: true,
       },
     }),
-    prisma.instagramAccount.findFirst({
+    prisma.socialAccount.findFirst({
       where: { workspaceId },
       orderBy: { connectedAt: "desc" },
       select: {
         id: true,
         username: true,
-        instagramId: true,
+        externalId: true,
         tokenExpiresAt: true,
         webhookSubscribed: true,
       },
     }),
-    prisma.instagramAccount.findMany({
+    prisma.socialAccount.findMany({
       where: { workspaceId },
       orderBy: { connectedAt: "desc" },
       select: {
         id: true,
         username: true,
-        instagramId: true,
+        externalId: true,
         name: true,
         tokenExpiresAt: true,
         webhookSubscribed: true,
@@ -132,7 +132,7 @@ export async function GET(request: NextRequest) {
       take: 10,
       include: {
         automation: { select: { name: true } },
-        instagramAccount: { select: { username: true } },
+        socialAccount: { select: { username: true } },
       },
     }),
     userId

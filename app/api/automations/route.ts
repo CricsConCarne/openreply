@@ -133,14 +133,14 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("instagramAccountId");
   const accountFilter =
     instagramAccountId && instagramAccountId !== "all"
-      ? { instagramAccountId }
+      ? { socialAccountId: instagramAccountId }
       : {};
 
   const automations = await prisma.automation.findMany({
     where: { workspaceId, ...accountFilter },
     include: {
-      instagramAccount: {
-        select: { username: true, instagramId: true },
+      socialAccount: {
+        select: { username: true, externalId: true },
       },
       _count: {
         select: { dmLogs: true },
@@ -318,10 +318,10 @@ export async function POST(request: NextRequest) {
       select: { id: true },
     }),
     requestedInstagramAccountId
-      ? prisma.instagramAccount.findFirst({
+      ? prisma.socialAccount.findFirst({
           where: { id: requestedInstagramAccountId, workspaceId },
         })
-      : prisma.instagramAccount.findFirst({
+      : prisma.socialAccount.findFirst({
           where: { workspaceId },
           orderBy: { connectedAt: "desc" },
         }),
@@ -428,7 +428,7 @@ export async function POST(request: NextRequest) {
       isActive: parsed.data.isActive,
       wholeWordMatch: parsed.data.wholeWordMatch,
       workspaceId,
-      instagramAccountId: instagramAccount.id,
+      socialAccountId: instagramAccount.id,
       reportShareSlug: generateReportShareSlug(),
       ...(linkCreates.length > 0
         ? { trackedLinks: { create: linkCreates } }

@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     workspaceId,
     ...(parsedStatus ? { status: parsedStatus } : {}),
     ...(instagramAccountId && instagramAccountId !== "all"
-      ? { instagramAccountId }
+      ? { socialAccountId: instagramAccountId }
       : {}),
   };
 
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
       take: limit,
       include: {
         automation: { select: { name: true, keywords: true } },
-        instagramAccount: { select: { username: true } },
+        socialAccount: { select: { username: true } },
       },
     }),
     prisma.dmLog.count({ where }),

@@ -210,7 +210,7 @@ export async function GET(request: NextRequest) {
       }
     );
 
-    const accounts = await prisma.instagramAccount.findMany({
+    const accounts = await prisma.socialAccount.findMany({
       where: { workspaceId },
       orderBy: { connectedAt: "desc" },
       select: { id: true, username: true },
@@ -223,7 +223,7 @@ export async function GET(request: NextRequest) {
     let followerHistory: FollowerHistoryPoint[] = [];
     try {
       followers = await ensureFollowerHistory(
-        { id: account.id, instagramId: account.instagramId },
+        { id: account.id, instagramId: account.externalId },
         accessToken
       );
       followerHistory = await getFollowerHistory(account.id);

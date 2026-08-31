@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
   }
 
   const existing = await prisma.automation.findMany({
-    where: { instagramAccountId: account.id },
+    where: { socialAccountId: account.id },
     select: { postId: true },
   });
   const usedPostIds = new Set(existing.map((a) => a.postId));
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
         isActive: campaign.isActive,
         wholeWordMatch: campaign.wholeWordMatch,
         workspaceId: context.workspaceId,
-        instagramAccountId: account.id,
+        socialAccountId: account.id,
         reportShareSlug: generateReportShareSlug(),
         ...(validTrackedUrl
           ? {

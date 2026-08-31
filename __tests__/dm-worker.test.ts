@@ -28,7 +28,7 @@ const {
       update: vi.fn(),
       create: vi.fn(),
     },
-    instagramAccount: {
+    socialAccount: {
       findUnique: vi.fn(),
     },
     operationalEvent: {
@@ -135,7 +135,7 @@ const usagePeriodStart = new Date("2026-05-01T00:00:00.000Z");
 const mockAutomation = {
   id: "auto_789",
   workspaceId: "workspace_123",
-  instagramAccountId: "ig_account_row_1",
+  socialAccountId: "ig_account_row_1",
   postId: "media_101",
   keywords: ["LINK", "PRICE"],
   dmMessage: "Hey {username}! Here is the link: https://example.com",
@@ -150,9 +150,9 @@ const mockAutomation = {
   publicReplyEnabled: false,
   publicReplyMessage: null,
   publicReplyMessages: [],
-  instagramAccount: {
+  socialAccount: {
     id: "ig_account_row_1",
-    instagramId: "ig_456",
+    externalId: "ig_456",
     accessToken: "encrypted_token_abc",
   },
   workspace: {
@@ -225,7 +225,7 @@ beforeEach(() => {
   );
   mockPrisma.dmLog.upsert.mockResolvedValue({});
   mockPrisma.dmLog.update.mockResolvedValue({});
-  mockPrisma.instagramAccount.findUnique.mockResolvedValue({
+  mockPrisma.socialAccount.findUnique.mockResolvedValue({
     workspaceId: "workspace_123",
   });
   mockPrisma.operationalEvent.create.mockResolvedValue({});
@@ -315,10 +315,10 @@ describe("DM Worker — Full Pipeline", () => {
       where: {
         OR: [{ postId: "media_101" }, { matchAnyPost: true }],
         isActive: true,
-        instagramAccount: { instagramId: "ig_456" },
+        socialAccount: { externalId: "ig_456" },
       },
       include: {
-        instagramAccount: true,
+        socialAccount: true,
         workspace: true,
         trackedLinks: {
           select: {
@@ -498,8 +498,8 @@ describe("DM Worker — Full Pipeline", () => {
     mockPrisma.automation.findMany.mockResolvedValue([
       {
         ...mockAutomation,
-        instagramAccount: {
-          ...mockAutomation.instagramAccount,
+        socialAccount: {
+          ...mockAutomation.socialAccount,
           accessToken: null,
         },
       },

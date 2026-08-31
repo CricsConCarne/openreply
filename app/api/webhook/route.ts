@@ -85,8 +85,8 @@ export async function POST(request: NextRequest) {
     const queue = getDMQueue();
 
     for (const event of commentEvents) {
-      const account = await prisma.instagramAccount.findUnique({
-        where: { instagramId: event.instagramAccountId },
+      const account = await prisma.socialAccount.findUnique({
+        where: { platform_externalId: { platform: "INSTAGRAM", externalId: event.instagramAccountId } },
         select: { workspaceId: true },
       });
 
@@ -145,8 +145,8 @@ export async function POST(request: NextRequest) {
     );
 
     for (const event of messageEvents) {
-      const account = await prisma.instagramAccount.findUnique({
-        where: { instagramId: event.instagramAccountId },
+      const account = await prisma.socialAccount.findUnique({
+        where: { platform_externalId: { platform: "INSTAGRAM", externalId: event.instagramAccountId } },
         select: { workspaceId: true },
       });
 
@@ -192,8 +192,8 @@ export async function POST(request: NextRequest) {
           automation: {
             isActive: true,
             openingDmEnabled: true,
-            instagramAccount: {
-              instagramId: event.instagramAccountId,
+            socialAccount: {
+              externalId: event.instagramAccountId,
             },
           },
         },

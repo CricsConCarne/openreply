@@ -47,12 +47,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const accessToken = decryptToken(account.accessToken);
-    const raw = await getConversations(accessToken, account.instagramId);
+    const raw = await getConversations(accessToken, account.externalId);
 
     const conversations: ConversationListItem[] = raw.map((c) => {
       const participants = c.participants?.data ?? [];
       const contact =
-        participants.find((p) => p.id !== account.instagramId) ??
+        participants.find((p) => p.id !== account.externalId) ??
         participants[0] ??
         null;
       const last = c.messages?.data?.[0] ?? null;
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
         lastMessage: last
           ? {
               text: last.message ?? "",
-              fromMe: last.from?.id === account.instagramId,
+              fromMe: last.from?.id === account.externalId,
               createdTime: last.created_time ?? null,
             }
           : null,
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
       account: {
         id: account.id,
         username: account.username,
-        instagramId: account.instagramId,
+        instagramId: account.externalId,
       },
     };
     return NextResponse.json({ success: true, data });
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
     const accessToken = decryptToken(account.accessToken);
     const result = await sendDirectMessage(
       accessToken,
-      account.instagramId,
+      account.externalId,
       body.recipientId,
       text
     );

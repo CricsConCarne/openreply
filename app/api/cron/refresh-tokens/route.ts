@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const accountsToRefresh = await prisma.instagramAccount.findMany({
+  const accountsToRefresh = await prisma.socialAccount.findMany({
     where: {
       accessToken: { not: "" },
       tokenExpiresAt: {
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
       const encryptedToken = encryptToken(newToken);
       const newExpiry = new Date(Date.now() + expiresIn * 1000);
 
-      await prisma.instagramAccount.update({
+      await prisma.socialAccount.update({
         where: { id: account.id },
         data: {
           accessToken: encryptedToken,

@@ -39,8 +39,8 @@ export async function recordFollowerSnapshot(
   const date = toUtcDay(new Date());
 
   await prisma.followerSnapshot.upsert({
-    where: { instagramAccountId_date: { instagramAccountId, date } },
-    create: { instagramAccountId, date, followersCount, backfilled: false },
+    where: { socialAccountId_date: { socialAccountId: instagramAccountId, date } },
+    create: { socialAccountId: instagramAccountId, date, followersCount, backfilled: false },
     // An observed count always supersedes a backfilled estimate for the day.
     update: { followersCount, backfilled: false },
   });
@@ -110,7 +110,7 @@ export async function backfillFollowerHistory(
 
   const existing = await prisma.followerSnapshot.findMany({
     where: {
-      instagramAccountId,
+      socialAccountId: instagramAccountId,
       date: { in: totals.map((t) => t.date) },
       backfilled: false,
     },
@@ -125,10 +125,10 @@ export async function backfillFollowerHistory(
     writable.map((t) =>
       prisma.followerSnapshot.upsert({
         where: {
-          instagramAccountId_date: { instagramAccountId, date: t.date },
+          socialAccountId_date: { socialAccountId: instagramAccountId, date: t.date },
         },
         create: {
-          instagramAccountId,
+          socialAccountId: instagramAccountId,
           date: t.date,
           followersCount: t.followers,
           backfilled: true,
@@ -153,7 +153,7 @@ export async function getFollowerHistory(
   since.setUTCDate(since.getUTCDate() - Math.max(days, 1));
 
   const rows = await prisma.followerSnapshot.findMany({
-    where: { instagramAccountId, date: { gte: since } },
+    where: { socialAccountId: instagramAccountId, date: { gte: since } },
     orderBy: { date: "asc" },
     select: { date: true, followersCount: true },
   });
@@ -181,7 +181,7 @@ export async function ensureFollowerHistory(
   await recordFollowerSnapshot(account.id, followers);
 
   const count = await prisma.followerSnapshot.count({
-    where: { instagramAccountId: account.id },
+    where: { socialAccountId: account.id },
   });
   if (count <= 1) {
     await backfillFollowerHistory(
