@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { SocialPlatform } from "@/app/generated/prisma/client";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { prisma } from "@/lib/db/client";
 import { calculateCtr, normalizeTopKeywords } from "@/lib/tracking/analytics";
@@ -14,6 +15,9 @@ import {
 // This list is read-your-writes (created/imported campaigns must show up
 // immediately), so never cache it at the route or CDN layer.
 export const dynamic = "force-dynamic";
+
+const FOLLOW_GATE_UNSUPPORTED_ERROR =
+  "Follow gate is not supported on Facebook — it is Instagram-only.";
 
 const createAutomationSchema = z
   .object({
@@ -341,6 +345,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // The follow gate is Instagram-only. Resolve the platform from the account
+  // record (never a client-sent value) and reject a follow gate on Facebook.
+  if (
+    socialAccount.platform === SocialPlatform.FACEBOOK &&
+    parsed.data.requireFollow
+  ) {
+    return NextResponse.json(
+      { success: false, error: FOLLOW_GATE_UNSUPPORTED_ERROR },
+      { status: 400 }
+    );
+  }
+
   const { trackedDestinationUrl, secondaryDestinationUrl, secondaryButtonLabel } =
     parsed.data;
 
@@ -494,6 +510,22 @@ export async function PATCH(request: NextRequest) {
       { success: false, error: "Campaign not found" },
       { status: 404 }
     );
+  }
+
+  // The follow gate is Instagram-only. Turning it on requires an Instagram
+  // account; resolve the platform from the campaign's account in the DB, never
+  // from the client.
+  if (parsed.data.requireFollow === true) {
+    const account = await prisma.socialAccount.findFirst({
+      where: { id: existing.socialAccountId, workspaceId },
+      select: { platform: true },
+    });
+    if (account?.platform === SocialPlatform.FACEBOOK) {
+      return NextResponse.json(
+        { success: false, error: FOLLOW_GATE_UNSUPPORTED_ERROR },
+        { status: 400 }
+      );
+    }
   }
 
   const {
