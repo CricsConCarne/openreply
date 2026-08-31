@@ -33,6 +33,17 @@ export function verifyWebhookSignature(
   });
 }
 
+/**
+ * Map a webhook `payload.object` to the platform its events belong to.
+ * Returns null for an object this pipeline does not handle, so callers can
+ * early-out without a platform literal of their own.
+ */
+export function platformForObject(object: string): SocialPlatform | null {
+  if (object === "instagram") return SocialPlatform.INSTAGRAM;
+  if (object === "page") return SocialPlatform.FACEBOOK;
+  return null;
+}
+
 export interface WebhookCommentEvent {
   platform: SocialPlatform;
   externalAccountId: string;
@@ -98,6 +109,7 @@ interface WebhookEntry {
 }
 
 export interface WebhookMessageEvent {
+  platform: SocialPlatform;
   externalAccountId: string;
   messageId: string;
   messageText: string;
@@ -105,6 +117,7 @@ export interface WebhookMessageEvent {
 }
 
 export interface WebhookPostbackEvent {
+  platform: SocialPlatform;
   externalAccountId: string;
   userId: string;
   payload: string;
@@ -112,6 +125,7 @@ export interface WebhookPostbackEvent {
 }
 
 export interface WebhookReadEvent {
+  platform: SocialPlatform;
   externalAccountId: string;
   userId: string;
   watermark?: number;
@@ -233,7 +247,8 @@ export function parsePostbackEvents(
 ): WebhookPostbackEvent[] {
   const events: WebhookPostbackEvent[] = [];
 
-  if (payload.object !== "instagram") return events;
+  const platform = platformForObject(payload.object);
+  if (!platform) return [];
 
   for (const entry of payload.entry ?? []) {
     for (const messaging of entry.messaging ?? []) {
@@ -246,6 +261,7 @@ export function parsePostbackEvents(
       if (userId === accountId) continue;
 
       events.push({
+        platform,
         externalAccountId: accountId,
         userId,
         payload: postbackPayload,
@@ -272,7 +288,8 @@ export function parseMessageEvents(
 ): WebhookMessageEvent[] {
   const events: WebhookMessageEvent[] = [];
 
-  if (payload.object !== "instagram") return events;
+  const platform = platformForObject(payload.object);
+  if (!platform) return [];
 
   for (const entry of payload.entry ?? []) {
     for (const messaging of entry.messaging ?? []) {
@@ -292,6 +309,7 @@ export function parseMessageEvents(
       if (senderId === accountId) continue;
 
       events.push({
+        platform,
         externalAccountId: accountId,
         messageId,
         messageText: text,
@@ -311,7 +329,8 @@ export function parseMessageEvents(
 export function parseReadEvents(payload: WebhookPayload): WebhookReadEvent[] {
   const events: WebhookReadEvent[] = [];
 
-  if (payload.object !== "instagram") return events;
+  const platform = platformForObject(payload.object);
+  if (!platform) return [];
 
   for (const entry of payload.entry ?? []) {
     for (const messaging of entry.messaging ?? []) {
@@ -324,6 +343,7 @@ export function parseReadEvents(payload: WebhookPayload): WebhookReadEvent[] {
       if (userId === accountId) continue;
 
       events.push({
+        platform,
         externalAccountId: accountId,
         userId,
         watermark: messaging.read.watermark,

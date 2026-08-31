@@ -3,13 +3,15 @@ import { prisma } from "@/lib/db/client";
 import { getDMQueue } from "@/lib/queue/client";
 import {
   parseCommentEvents,
+  parseFacebookCommentEvents,
   parseMessageEvents,
   parsePostbackEvents,
   parseReadEvents,
   verifyWebhookSignature,
+  type WebhookCommentEvent,
 } from "@/lib/meta/webhook";
 import { MESSAGE_JOB_NAME, POSTBACK_JOB_NAME } from "@/lib/queue/client";
-import { Prisma, SocialPlatform } from "@/app/generated/prisma/client";
+import { Prisma } from "@/app/generated/prisma/client";
 
 const OPENING_DM_READ_FALLBACK_DELAY_MS = 5 * 60 * 1000;
 
@@ -67,26 +69,31 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const payloadObject =
+    typeof payload === "object" && payload && "object" in payload
+      ? String(payload.object)
+      : null;
+
   const webhookEvent = await prisma.webhookEvent.create({
     data: {
-      object:
-        typeof payload === "object" && payload && "object" in payload
-          ? String(payload.object)
-          : null,
+      object: payloadObject,
       payload: payload as Prisma.InputJsonValue,
       status: "PENDING",
     },
   });
 
   try {
-    const commentEvents = parseCommentEvents(
+    // Dispatch the comment parser by object; the messaging parsers below are
+    // platform-agnostic and self-guard on an unsupported object.
+    const commentEvents = commentEventsForObject(
+      payloadObject,
       payload as Parameters<typeof parseCommentEvents>[0]
     );
     const queue = getDMQueue();
 
     for (const event of commentEvents) {
       const account = await prisma.socialAccount.findUnique({
-        where: { platform_externalId: { platform: "INSTAGRAM", externalId: event.externalAccountId } },
+        where: { platform_externalId: { platform: event.platform, externalId: event.externalAccountId } },
         select: { workspaceId: true },
       });
 
@@ -94,7 +101,7 @@ export async function POST(request: NextRequest) {
         "process-comment",
         {
           externalAccountId: event.externalAccountId,
-          platform: SocialPlatform.INSTAGRAM,
+          platform: event.platform,
           commentId: event.commentId,
           commentText: event.commentText,
           commenterId: event.commenterId,
@@ -126,7 +133,7 @@ export async function POST(request: NextRequest) {
         POSTBACK_JOB_NAME,
         {
           externalAccountId: event.externalAccountId,
-          platform: SocialPlatform.INSTAGRAM,
+          platform: event.platform,
           userId: event.userId,
           payload: event.payload,
           mid: event.mid,
@@ -148,7 +155,7 @@ export async function POST(request: NextRequest) {
 
     for (const event of messageEvents) {
       const account = await prisma.socialAccount.findUnique({
-        where: { platform_externalId: { platform: "INSTAGRAM", externalId: event.externalAccountId } },
+        where: { platform_externalId: { platform: event.platform, externalId: event.externalAccountId } },
         select: { workspaceId: true },
       });
 
@@ -156,7 +163,7 @@ export async function POST(request: NextRequest) {
         MESSAGE_JOB_NAME,
         {
           externalAccountId: event.externalAccountId,
-          platform: SocialPlatform.INSTAGRAM,
+          platform: event.platform,
           messageId: event.messageId,
           messageText: event.messageText,
           senderId: event.senderId,
@@ -219,7 +226,7 @@ export async function POST(request: NextRequest) {
           POSTBACK_JOB_NAME,
           {
             externalAccountId: event.externalAccountId,
-            platform: SocialPlatform.INSTAGRAM,
+            platform: event.platform,
             userId: event.userId,
             payload: `reveal:${automation.id}`,
             fallback: true,
@@ -257,4 +264,18 @@ export async function POST(request: NextRequest) {
       { status: 500 }
     );
   }
+}
+
+/**
+ * Pick the comment parser for the payload's object. Facebook Page `feed`
+ * comments use a different shape than Instagram `comments`, so they need
+ * their own parser; every other object (including an unsupported one) falls
+ * to the Instagram parser, which self-guards and returns [].
+ */
+function commentEventsForObject(
+  object: string | null,
+  payload: Parameters<typeof parseCommentEvents>[0]
+): WebhookCommentEvent[] {
+  if (object === "page") return parseFacebookCommentEvents(payload);
+  return parseCommentEvents(payload);
 }
