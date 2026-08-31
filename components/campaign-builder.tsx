@@ -14,6 +14,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { SocialPlatform } from "@/app/generated/prisma/client";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import PostPicker from "@/components/post-picker";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
@@ -129,6 +130,27 @@ function Toggle({
   );
 }
 
+// Tag each account with the platform it came from, so the selector can badge
+// it and the builder can key platform-specific behavior off it.
+function tagPlatform(
+  accounts: AccountOption[] | undefined,
+  platform: SocialPlatform
+): AccountOption[] {
+  return (accounts ?? []).map((account) => ({ ...account, platform }));
+}
+
+// dashboard/stats returns Instagram and Facebook accounts in separate arrays;
+// the builder feeds the selector both, each carrying its platform.
+function combinePlatformAccounts(data: {
+  instagramAccounts?: AccountOption[];
+  facebookAccounts?: AccountOption[];
+}): AccountOption[] {
+  return [
+    ...tagPlatform(data.instagramAccounts, SocialPlatform.INSTAGRAM),
+    ...tagPlatform(data.facebookAccounts, SocialPlatform.FACEBOOK),
+  ];
+}
+
 export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderProps) {
   const router = useRouter();
 
@@ -226,12 +248,14 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   }, [selectedAccountId]);
 
   // Load accounts (both modes need them for the preview username + selector).
+  // Both platforms feed the selector; each account carries its platform so the
+  // builder can adapt (badge in the picker, follow-gate visibility, posts path).
   useEffect(() => {
     fetch("/api/dashboard/stats")
       .then((r) => r.json())
       .then((payload) => {
         if (!payload.success) return;
-        const next: AccountOption[] = payload.data.instagramAccounts ?? [];
+        const next = combinePlatformAccounts(payload.data);
         setAccounts(next);
         setSelectedAccountId(
           (prev) => prev || payload.data.selectedInstagramAccountId || next[0]?.id || ""
@@ -364,8 +388,20 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
   }, [mode]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const username =
-    accounts.find((a) => a.id === selectedAccountId)?.username ?? "yourbrand";
+  const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
+  const username = selectedAccount?.username ?? "yourbrand";
+  // The one platform check the rest of the builder keys off. Facebook Pages
+  // have no follow gate, so the section is hidden and the requirement forced off.
+  const isFacebook = selectedAccount?.platform === SocialPlatform.FACEBOOK;
+
+  // Switching to a Facebook account forces the follow requirement off, so a
+  // gate the user can no longer see can't be silently submitted as true.
+  // Switching back to Instagram leaves the section editable again.
+  useEffect(() => {
+    if (!isFacebook) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRequireFollow(false);
+  }, [isFacebook]);
 
   function handlePostSelect(
     id: string,
@@ -661,7 +697,7 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                   setPostThumb(null);
                 }}
                 includeAll={false}
-                label="Instagram account"
+                label="Account"
               />
             </div>
           )}
@@ -827,41 +863,47 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
               </div>
             )}
           </div>
-          <div className="mt-3 rounded-lg border border-border p-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-foreground">
-                a follow requirement first
-              </span>
-              <Toggle
-                on={requireFollow}
-                onToggle={() => setRequireFollow(!requireFollow)}
-              />
+          {isFacebook ? (
+            <div className="mt-3 rounded-lg border border-border p-3">
+              <p className="text-sm text-muted">Follow gate is Instagram-only.</p>
             </div>
-            {requireFollow && (
-              <div className="mt-3 space-y-2">
-                <textarea
-                  value={followPromptMessage}
-                  onChange={(e) => setFollowPromptMessage(e.target.value)}
-                  placeholder="quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over"
-                  rows={3}
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
-                  maxLength={1000}
+          ) : (
+            <div className="mt-3 rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-foreground">
+                  a follow requirement first
+                </span>
+                <Toggle
+                  on={requireFollow}
+                  onToggle={() => setRequireFollow(!requireFollow)}
                 />
-                <input
-                  value={followPromptButtonLabel}
-                  onChange={(e) => setFollowPromptButtonLabel(e.target.value)}
-                  placeholder="i'm following"
-                  className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
-                  maxLength={20}
-                />
-                <p className="text-xs text-muted">
-                  We send the link only after they tap the button and Instagram
-                  confirms the follow. If it can&apos;t be verified, we send it
-                  anyway.
-                </p>
               </div>
-            )}
-          </div>
+              {requireFollow && (
+                <div className="mt-3 space-y-2">
+                  <textarea
+                    value={followPromptMessage}
+                    onChange={(e) => setFollowPromptMessage(e.target.value)}
+                    placeholder="quick favor before i send your link. i don't make any money from this, it's free. if you want to support me, just don't unfollow after, and star the repo on github if it helps you. tap the button once you're following and i'll send it over"
+                    rows={3}
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none resize-none"
+                    maxLength={1000}
+                  />
+                  <input
+                    value={followPromptButtonLabel}
+                    onChange={(e) => setFollowPromptButtonLabel(e.target.value)}
+                    placeholder="i'm following"
+                    className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
+                    maxLength={20}
+                  />
+                  <p className="text-xs text-muted">
+                    We send the link only after they tap the button and Instagram
+                    confirms the follow. If it can&apos;t be verified, we send it
+                    anyway.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </Section>
 
         <Section title="And then, they will get">

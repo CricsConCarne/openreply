@@ -5,8 +5,9 @@
 /**
  * Post Picker
  *
- * Grid of Instagram post thumbnails, selectable.
- * Fetches from /api/instagram/posts.
+ * Grid of post thumbnails, selectable. Fetches from /api/instagram/posts,
+ * which returns Instagram's rich media shape or Facebook's normalized
+ * ChannelPost shape depending on the account's platform.
  */
 
 import { useEffect, useState } from "react";
@@ -14,6 +15,8 @@ import { readCache, writeCache } from "@/lib/client-cache";
 
 const PAGE_SIZE = 60;
 
+// Instagram's rich media shape — carries media_type/media_url that drive the
+// reel hover-preview.
 interface InstagramPost {
   id: string;
   caption?: string;
@@ -22,6 +25,50 @@ interface InstagramPost {
   thumbnail_url?: string;
   permalink?: string;
   timestamp: string;
+}
+
+// Facebook's normalized ChannelPost shape from the channel seam. No media_type,
+// so the video hover-preview is simply absent.
+interface FacebookPost {
+  id: string;
+  caption?: string;
+  thumbnailUrl?: string;
+  permalink?: string;
+  timestamp: string;
+}
+
+type ApiPost = InstagramPost | FacebookPost;
+
+// The single shape the grid renders, resolved from either platform's payload.
+interface DisplayPost {
+  id: string;
+  caption?: string;
+  timestamp: string;
+  permalink?: string;
+  thumbnailUrl?: string;
+  // Present only for an Instagram reel; drives the hover preview. Absent for
+  // Facebook, so that affordance degrades gracefully.
+  videoUrl?: string;
+}
+
+function toDisplayPost(post: ApiPost): DisplayPost {
+  if ("media_type" in post) {
+    return {
+      id: post.id,
+      caption: post.caption,
+      timestamp: post.timestamp,
+      permalink: post.permalink,
+      thumbnailUrl: post.thumbnail_url ?? post.media_url,
+      videoUrl: post.media_type === "VIDEO" ? post.media_url : undefined,
+    };
+  }
+  return {
+    id: post.id,
+    caption: post.caption,
+    timestamp: post.timestamp,
+    permalink: post.permalink,
+    thumbnailUrl: post.thumbnailUrl,
+  };
 }
 
 interface PostPickerProps {
@@ -43,7 +90,7 @@ export default function PostPicker({
   usedPostIds,
   onSelect,
 }: PostPickerProps) {
-  const [posts, setPosts] = useState<InstagramPost[]>([]);
+  const [posts, setPosts] = useState<ApiPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -66,7 +113,7 @@ export default function PostPicker({
 
     // Show the cached library instantly (stale-while-revalidate), then refresh.
     const cacheKey = `ig-posts:${socialAccountId ?? "default"}`;
-    const cached = readCache<InstagramPost[]>(cacheKey, 15 * 60 * 1000);
+    const cached = readCache<ApiPost[]>(cacheKey, 15 * 60 * 1000);
     // Hydrating state from cache is a legitimate effect use here.
     /* eslint-disable react-hooks/set-state-in-effect */
     if (cached.data) {
@@ -125,11 +172,13 @@ export default function PostPicker({
     );
   }
 
+  const displayPosts = posts.map(toDisplayPost);
+
   const matching = query.trim()
-    ? posts.filter((p) =>
+    ? displayPosts.filter((p) =>
         (p.caption ?? "").toLowerCase().includes(query.trim().toLowerCase())
       )
-    : posts;
+    : displayPosts;
 
   const visible = matching.slice(0, shown);
   const remaining = matching.length - visible.length;
@@ -171,10 +220,9 @@ export default function PostPicker({
               const isSelected = selectedPostId === post.id;
               const usedByName = usedPostIds?.[post.id];
               const isUsed = Boolean(usedByName) && !isSelected;
-              const thumb = post.thumbnail_url ?? post.media_url;
-              const isVideo = post.media_type === "VIDEO";
+              const thumb = post.thumbnailUrl;
               const showVideo =
-                isVideo && hoveredId === post.id && Boolean(post.media_url);
+                hoveredId === post.id && Boolean(post.videoUrl);
               return (
           <button
             key={post.id}
@@ -212,7 +260,7 @@ export default function PostPicker({
             )}
             {showVideo && (
               <video
-                src={post.media_url}
+                src={post.videoUrl}
                 poster={thumb}
                 autoPlay
                 muted
