@@ -491,6 +491,44 @@ describe("DM Worker — Full Pipeline", () => {
     expect(mockReserveWorkspaceDMSend).not.toHaveBeenCalled();
   });
 
+  it("dedupes a duplicate Facebook comment via the platform-neutral DmLog guard", async () => {
+    // Cross-platform hardening: the worker's dedup guard keys on
+    // automationId_commentId (lib/queue/dm-worker.ts:297-303) — no platform
+    // field. A Facebook `{postid}_{commentid}` comment whose DM already SENT is
+    // skipped on the exact same rail as Instagram.
+    mockChannelProvider.platform = "FACEBOOK";
+    mockChannelProvider.hasFollowGate = false;
+    const fbCommentId = "781234567890123_1009876543210987";
+    mockPrisma.dmLog.findUnique.mockResolvedValue({
+      id: "existing_fb_log",
+      status: "SENT",
+    });
+    const processor = getProcessor();
+
+    await processor(
+      createMockJob({
+        externalAccountId: "page_555",
+        platform: "FACEBOOK",
+        commentId: fbCommentId,
+        commentText: "I want the LINK!",
+        commenterId: "fb_user_999",
+        commenterName: "fb_commenter",
+        mediaId: "781234567890123",
+      })
+    );
+
+    expect(mockPrisma.dmLog.findUnique).toHaveBeenCalledWith({
+      where: {
+        automationId_commentId: {
+          automationId: mockAutomation.id,
+          commentId: fbCommentId,
+        },
+      },
+    });
+    expect(mockSendPrivateReply).not.toHaveBeenCalled();
+    expect(mockReserveWorkspaceDMSend).not.toHaveBeenCalled();
+  });
+
   it("should skip when monthly plan limit is reached", async () => {
     mockReserveWorkspaceDMSend.mockResolvedValue({
       allowed: false,
