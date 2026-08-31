@@ -14,10 +14,10 @@
 
 ## Current Position
 - **Phase Started:** 2026-08-30T18:10:00Z
-- **Current Epic:** facebook-provider
-- **Current Sprint:** 4
+- **Current Epic:** dual-channel-ui
+- **Current Sprint:** 6
 - **Hardening Run:** 0
-- **Merged to development:** platform-foundation (7a44322), channel-provider-seam (b89bb28), facebook-connect (b98f5cb)
+- **Merged to development:** platform-foundation (7a44322), channel-provider-seam (b89bb28), facebook-connect (b98f5cb), facebook-provider (f8d0b7b), facebook-webhooks (a4d9f57)
 
 ## Execution Model (revised after Sprint 1)
 - sprint_pipeline based the release branch on `main` (b1babea), NOT the current development HEAD, and exposes no base-branch arg. For DEPENDENT epics that would build against code Epic A already merged — unacceptable. `main` is human-only (never touch).
@@ -36,9 +36,10 @@
 | platform-foundation | CLOSED | 1 | 3 | 4 | 1 |
 | channel-provider-seam (core) | CLOSED | 0 | 3 | 3 | 2 |
 | facebook-connect | CLOSED | 0 | 2 | 2 | 3 |
-| facebook-provider | in-progress | 3 | 0 | 3 | 4 |
-| facebook-webhooks | pending | 2 | 0 | 2 | 5 |
-| dual-channel-ui | pending | 3 | 0 | 3 | 6 |
+| facebook-provider | CLOSED | 0 | 3 | 3 | 4 |
+| facebook-webhooks | CLOSED | 0 | 2 | 2 | 5 |
+| dual-channel-ui | in-progress | 3 | 0 | 3 | 6 |
+
 | validation-rollout | pending | 4 | 0 | 4 | 7 |
 
 ## Current Sprint Stories (Sprint 1 — platform-foundation)
@@ -47,6 +48,17 @@
 | standard-access-recipient-probe | cowork | research | 1 | skipped (human/cowork) — rollover |
 | facebook-env-plumbing | claude | impl | 2 | DONE (50992a0, review: accept) — on release |
 | social-account-migration + codebase-rename-sweep | claude | ops/impl | 10 | RECOVERING — merged into one atomic story |
+
+## Sprint 6 (dual-channel-ui) progress
+- F1 settings-dual-connect (3pt): DONE (088470e) — PlatformBadge, FacebookConnectNotice, Page picker, badges, FB disconnect via shared route; fixed dashboard/stats leaking FB into IG selectors. Merged (ff).
+- F2 platform-aware-campaign-builder (5pt): DONE (806fabb) — account-select rebuilt as custom listbox (platform optional, backward-compat 6 callers), FB follow-gate hidden+reset-on-switch, automations API rejects requireFollow on FB (POST+PATCH), platform-aware post picker. 270/270. Merged (no-ff).
+- F3 platform-aware-overview (2pt): DONE (0df44a8) — FB fan_count series labeled "Page likes", IG-only insights degrade gracefully, overview route FB branch. Merged (ff).
+- Epic F release review: IN FLIGHT.
+
+## Sprint 5 (facebook-webhooks) progress
+- E1 facebook-feed-comment-parser (3pt): DONE (f39ac59) — hard noise filter (item==comment && verb==add), platform on WebhookCommentEvent, 23 fixture tests. 259/259. Merged (ff).
+- E2 webhook-dispatch-and-shared-messaging (3pt): DONE (bce0ef6) — dispatch by object, shared messaging parsers accept page, route reads event.platform (no hardcode), unknown object->200. 267/267. Merged (ff).
+- Epic E release review: IN FLIGHT.
 
 ## Sprint 4 (facebook-provider) progress
 - D1+D2 combined facebook-graph-provider (8pt): DONE (2ce18f6) — full FB ChannelProvider (sends/comments/posts/conversations) + registered FACEBOOK + exported shared Graph helpers from client.ts and deduped facebook-oauth (Epic C follow-up). 224/224. Merged (ff).
