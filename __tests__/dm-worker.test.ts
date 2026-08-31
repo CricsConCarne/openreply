@@ -651,7 +651,7 @@ describe("DM Worker — Full Pipeline", () => {
       expect.objectContaining({
         create: expect.objectContaining({
           status: "FAILED",
-          errorMessage: "No Instagram access token available",
+          errorMessage: "No access token available for the connected account",
         }),
       })
     );

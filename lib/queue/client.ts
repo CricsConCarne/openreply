@@ -35,8 +35,10 @@ export interface ProcessCommentJob {
   // from. Campaigns are bound to that post, so both ids have to be matched.
   originalMediaId?: string;
   requeueAttempt?: number;
-  // Which path enqueued this comment. Recorded in the shared ProcessedComment
-  // dedup store so the reconciler can tell webhook- from polling-caught comments.
+  // Which path enqueued this comment (webhook vs polling reconciler), for
+  // logging/attribution. Dedup does not depend on this: it is enforced by the
+  // deterministic BullMQ job id (comment_<externalId>_<commentId>) and the
+  // DmLog @@unique([automationId, commentId]) guard.
   source?: CommentSource;
 }
 
