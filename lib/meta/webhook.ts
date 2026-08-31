@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import { SocialPlatform } from "@/app/generated/prisma/client";
 
 export function verifyWebhookSignature(
   payload: string,
@@ -33,6 +34,7 @@ export function verifyWebhookSignature(
 }
 
 export interface WebhookCommentEvent {
+  platform: SocialPlatform;
   externalAccountId: string;
   commentId: string;
   commentText: string;
@@ -56,9 +58,17 @@ interface WebhookEntry {
       id?: string;
       comment_id?: string;
       text?: string;
+      // Facebook `feed` changes carry the comment body in `message` (Instagram
+      // uses `text`) and discriminate the change with `item` + `verb`.
+      message?: string;
+      item?: string;
+      verb?: string;
+      post_id?: string;
       from?: {
         id?: string;
         username?: string;
+        // Facebook `feed` `from` uses `name`; Instagram uses `username`.
+        name?: string;
       };
       media?: {
         id?: string;
@@ -147,6 +157,7 @@ export function parseCommentEvents(payload: WebhookPayload): WebhookCommentEvent
       }
 
       events.push({
+        platform: SocialPlatform.INSTAGRAM,
         externalAccountId: entry.id,
         commentId,
         commentText: value.text ?? "",
@@ -154,6 +165,58 @@ export function parseCommentEvents(payload: WebhookPayload): WebhookCommentEvent
         commenterName: value.from?.username,
         mediaId,
         originalMediaId,
+      });
+    }
+  }
+
+  return events;
+}
+
+/**
+ * Parse new top-level comments out of a Facebook Page `feed` webhook.
+ *
+ * The `feed` webhook is a firehose: it also fires on likes, shares, statuses,
+ * reactions, photo posts, comment edits, removes, and hides. Only a freshly
+ * added comment may reach the queue, so the hard filter below keeps exactly
+ * `item === "comment" && verb === "add"` and drops everything else.
+ *
+ * Unlike Instagram there is no ad indirection in v1, so `originalMediaId` is
+ * always left undefined.
+ */
+export function parseFacebookCommentEvents(
+  payload: WebhookPayload
+): WebhookCommentEvent[] {
+  const events: WebhookCommentEvent[] = [];
+
+  if (payload.object !== "page") return events;
+
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== "feed") continue;
+
+      const value = change.value;
+      if (value?.item !== "comment" || value?.verb !== "add") continue;
+
+      const commentId = value.comment_id;
+      const mediaId = value.post_id;
+      const commenterId = value.from?.id;
+
+      // A comment with no `from` is a privacy-restricted user the pipeline
+      // can't act on.
+      if (!entry.id || !commentId || !mediaId || !commenterId) continue;
+
+      // Drop the Page's own comments — replying to yourself is rejected.
+      if (commenterId === entry.id) continue;
+
+      events.push({
+        platform: SocialPlatform.FACEBOOK,
+        externalAccountId: entry.id,
+        commentId,
+        commentText: value.message ?? "",
+        commenterId,
+        commenterName: value.from?.name,
+        mediaId,
+        originalMediaId: undefined,
       });
     }
   }

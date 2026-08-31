@@ -12,6 +12,7 @@ import {
   parseReadEvents,
 } from "../lib/meta/webhook";
 import { createHmac } from "crypto";
+import { SocialPlatform } from "@/app/generated/prisma/client";
 
 // Mock the environment variable
 beforeEach(() => {
@@ -90,6 +91,7 @@ describe("parseCommentEvents", () => {
     const events = parseCommentEvents(payload);
     expect(events).toHaveLength(1);
     expect(events[0]).toEqual({
+      platform: SocialPlatform.INSTAGRAM,
       externalAccountId: "page_123",
       commentId: "comment_456",
       commentText: "I want the LINK!",
