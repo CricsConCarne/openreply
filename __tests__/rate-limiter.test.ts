@@ -134,3 +134,39 @@ describe("incrementDMCounter", () => {
     expect(count).toBe(51);
   });
 });
+
+// Cross-platform hardening: the limiter keys on the external account id, never
+// on platform, so a Facebook page account reserves and is capped on the exact
+// same rail as an Instagram account. Key derivation lives at
+// lib/utils/rate-limiter.ts:162 (`rate:dm:${externalAccountId}`).
+describe("reserveDMSlot — Facebook account rides the same rail", () => {
+  const fbPageAccountId = "1784100000000123";
+
+  it("derives the same account-keyed slot and reserves below the cap", async () => {
+    mockEval.mockResolvedValue([1, 51, RATE_LIMIT_MAX - 51]);
+
+    const result = await reserveDMSlot(fbPageAccountId);
+
+    expect(mockEval).toHaveBeenCalledWith(
+      expect.any(String),
+      1,
+      `rate:dm:${fbPageAccountId}`,
+      RATE_LIMIT_MAX,
+      3600
+    );
+    expect(result.allowed).toBe(true);
+    expect(result.reserved).toBe(true);
+    expect(result.currentCount).toBe(51);
+  });
+
+  it("is capped identically once the hourly ceiling is hit", async () => {
+    mockEval.mockResolvedValue([0, RATE_LIMIT_MAX, 0]);
+
+    const result = await reserveDMSlot(fbPageAccountId, 0);
+
+    expect(result.allowed).toBe(false);
+    expect(result.reserved).toBe(false);
+    expect(result.shouldRequeue).toBe(true);
+    expect(result.shouldSkip).toBe(false);
+  });
+});

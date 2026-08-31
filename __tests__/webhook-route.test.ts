@@ -219,6 +219,69 @@ describe("POST /api/webhook — object:page (Facebook)", () => {
   });
 });
 
+describe("POST /api/webhook — Facebook {postid}_{commentid} dedup id is colon-free", () => {
+  // A real Facebook comment id is `{postid}_{commentid}` — globally unique and,
+  // crucially, joined with an underscore rather than a colon. The webhook route
+  // builds the BullMQ dedup key as `comment_<acct>_<commentId>`
+  // (app/api/webhook/route.ts:114). BullMQ rejects a custom job id containing
+  // ":" (node_modules/bullmq: "Custom Id cannot contain :"), so this proves the
+  // deterministic id scheme is safe for Facebook ids and that a redelivery of
+  // the same comment collapses onto the identical dedup key, exactly like IG.
+  const fbCommentId = "781234567890123_1009876543210987";
+
+  function fbCommentPayload() {
+    return {
+      object: "page",
+      entry: [
+        {
+          id: "page_555",
+          time: 1,
+          changes: [
+            {
+              field: "feed",
+              value: {
+                item: "comment",
+                verb: "add",
+                comment_id: fbCommentId,
+                post_id: "781234567890123",
+                from: { id: "user_789", name: "Test User" },
+                message: "I want the LINK!",
+              },
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  it("produces a colon-free deterministic job id for a Facebook comment", async () => {
+    await post(fbCommentPayload());
+
+    const expectedJobId = `comment_page_555_${fbCommentId}`;
+    expect(expectedJobId).not.toContain(":");
+    const job = jobById(expectedJobId);
+    expect(job).toBeDefined();
+    expect(job!.name).toBe("process-comment");
+    expect(job!.data).toMatchObject({
+      platform: SocialPlatform.FACEBOOK,
+      commentId: fbCommentId,
+    });
+  });
+
+  it("collapses a redelivered Facebook comment onto the identical dedup id", async () => {
+    await post(fbCommentPayload());
+    await post(fbCommentPayload());
+
+    const expectedJobId = `comment_page_555_${fbCommentId}`;
+    const matching = mockQueue.add.mock.calls.filter(
+      ([, , opts]) => opts?.jobId === expectedJobId
+    );
+    expect(matching).toHaveLength(2);
+    // Same jobId on both deliveries ⇒ BullMQ treats the second as a duplicate.
+    expect(matching[0][2].jobId).toBe(matching[1][2].jobId);
+  });
+});
+
 describe("POST /api/webhook — object:instagram regression", () => {
   it("enqueues the same INSTAGRAM comment job as before", async () => {
     const response = await post({
