@@ -14,9 +14,10 @@
 
 ## Current Position
 - **Phase Started:** 2026-08-30T18:10:00Z
-- **Current Epic:** channel-provider-seam (core)
-- **Current Sprint:** 2
+- **Current Epic:** facebook-provider
+- **Current Sprint:** 4
 - **Hardening Run:** 0
+- **Merged to development:** platform-foundation (7a44322), channel-provider-seam (b89bb28), facebook-connect (b98f5cb)
 
 ## Execution Model (revised after Sprint 1)
 - sprint_pipeline based the release branch on `main` (b1babea), NOT the current development HEAD, and exposes no base-branch arg. For DEPENDENT epics that would build against code Epic A already merged — unacceptable. `main` is human-only (never touch).
@@ -33,9 +34,9 @@
 | Epic | Status | Open | Closed | Total | Order |
 |------|--------|------|--------|-------|-------|
 | platform-foundation | CLOSED | 1 | 3 | 4 | 1 |
-| channel-provider-seam (core) | in-progress | 3 | 0 | 3 | 2 |
-| facebook-connect | pending | 2 | 0 | 2 | 3 |
-| facebook-provider | pending | 3 | 0 | 3 | 4 |
+| channel-provider-seam (core) | CLOSED | 0 | 3 | 3 | 2 |
+| facebook-connect | CLOSED | 0 | 2 | 2 | 3 |
+| facebook-provider | in-progress | 3 | 0 | 3 | 4 |
 | facebook-webhooks | pending | 2 | 0 | 2 | 5 |
 | dual-channel-ui | pending | 3 | 0 | 3 | 6 |
 | validation-rollout | pending | 4 | 0 | 4 | 7 |
@@ -46,6 +47,17 @@
 | standard-access-recipient-probe | cowork | research | 1 | skipped (human/cowork) — rollover |
 | facebook-env-plumbing | claude | impl | 2 | DONE (50992a0, review: accept) — on release |
 | social-account-migration + codebase-rename-sweep | claude | ops/impl | 10 | RECOVERING — merged into one atomic story |
+
+## Sprint 4 (facebook-provider) progress
+- D1+D2 combined facebook-graph-provider (8pt): DONE (2ce18f6) — full FB ChannelProvider (sends/comments/posts/conversations) + registered FACEBOOK + exported shared Graph helpers from client.ts and deduped facebook-oauth (Epic C follow-up). 224/224. Merged (ff).
+- D3 facebook-fan-snapshots (2pt): DONE (318190a) — getFollowerCount seam method (IG followers_count / FB fan_count) + hasFollowerHistoryBackfill capability gates IG-only backfill; cron on the seam, no platform literal. 235/235. Merged (ff).
+- Epic D release review: IN FLIGHT.
+
+## Sprint 3 (facebook-connect) progress
+- C1 facebook-oauth-module (3pt): DONE (dd8af9a) — dialog URL + token exchanges, reuses IG HMAC-state + AES-GCM, MetaApiError, v25.0. 191/191. Merged (ff).
+- C2 page-connect-routes (5pt): DONE (38212ed) — 4 routes + encrypted 10-min transient-token cookie + /me/accounts paging + subscribed_apps; SocialAccount upsert tokenExpiresAt=null; canConnectSocialAccount generalized w/ platform param (default INSTAGRAM, backward-compat). 204/204. Merged (ff).
+- Added connect Graph helpers getFacebookUserPages/subscribeFacebookPageToWebhooks (FB provider epic D will reuse).
+- Epic C release review (security-focused): IN FLIGHT.
 
 ## Sprint 2 (channel-provider-seam) progress
 - B1 channel-contract-and-instagram-provider: DONE (1b43fad) — contract + IG adapter, 18 tests, 171/171 green. Merged to release/channel-provider-seam (ff).

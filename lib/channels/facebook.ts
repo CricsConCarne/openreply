@@ -156,10 +156,17 @@ async function sendMessage(
   pageId: string,
   payload: MessagePayload
 ): Promise<SendResult> {
+  // Messenger requires messaging_type on user-id sends (all our DMs are
+  // RESPONSE — sent inside the window a comment/postback/inbound message opened).
+  // Private replies (recipient.comment_id) must NOT carry it.
+  const body =
+    "id" in payload.recipient
+      ? { ...payload, messaging_type: "RESPONSE" }
+      : payload;
   const response = await fetch(`${facebookGraphBase()}/${pageId}/messages`, {
     method: "POST",
     headers: authHeaders(accessToken),
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
   return handleResponse<SendResult>(response);
 }

@@ -1,7 +1,7 @@
 ---
 title: Channel Provider Seam — one pipeline, resolved per platform
 slug: channel-provider-seam
-status: open
+status: closed
 subdomain: core
 created: 2026-08-30T18:10:00Z
 ---

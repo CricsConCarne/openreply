@@ -95,10 +95,24 @@ describe("facebookProvider — plain-text sends", () => {
       userId: "u1",
       message: "yo",
     });
+    // A user-id DM must carry messaging_type: "RESPONSE" (Messenger requires it);
+    // private replies (comment_id) must not.
     expect(bodyOf(fetchMock)).toEqual({
       recipient: { id: "u1" },
       message: { text: "yo" },
+      messaging_type: "RESPONSE",
     });
+  });
+
+  it("omits messaging_type on a comment_id private reply", async () => {
+    const fetchMock = stubFetchJson(SEND_RESULT);
+    await facebookProvider.sendPrivateReply({
+      accessToken: "tok",
+      accountId: "page1",
+      commentId: "c1",
+      message: "hi",
+    });
+    expect(bodyOf(fetchMock).messaging_type).toBeUndefined();
   });
 });
 
