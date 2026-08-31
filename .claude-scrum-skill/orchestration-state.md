@@ -49,8 +49,11 @@
 
 ## Sprint 2 (channel-provider-seam) progress
 - B1 channel-contract-and-instagram-provider: DONE (1b43fad) — contract + IG adapter, 18 tests, 171/171 green. Merged to release/channel-provider-seam (ff).
-- B2 worker-on-the-seam (8pt): IN FLIGHT (worktree wt-b2).
-- B3 reconciler-and-routes-on-the-seam (5pt): IN FLIGHT (worktree wt-b3). Parallel; disjoint files (dm-worker vs reconciler/routes/cron).
+- B2 worker-on-the-seam (8pt): DONE (b3e9bb6) — 4 processors + reveal on the seam, FR-5 guard. Merged (no-ff 5308633).
+- B3 reconciler-and-routes-on-the-seam (5pt): DONE (a7c1189) — reconciler uses normalized ownerReplied, conversations+cron on seam, cron excludes FB. Merged (ff).
+- FIX 7e6d60d: B2 conflated getFollowStatus()===null ('no gate' vs IG 'transient error'), regressing IG to ungated. Added `hasFollowGate` capability → FR-5 only when no gate; IG null fail-closes as before. +IG-regression test. 182/182 green, tsc 0, lint 0.
+- DEFERRED (tracked): posts + overview routes stay on lib/meta/client.ts directly (ChannelPost lacks media_type/media_url/insights) — migrate when the FB provider/UI epics (D2/F2/F3) grow the contract. IG-only today, behavior unchanged.
+- Epic B release review: IN FLIGHT.
 
 ### Sprint 1 recovery note
 - Pipeline run wf_a9c2e747: env-plumbing done; migration BLOCKED by review (relation rename `instagramAccount`→`socialAccount` changed API JSON shape; frontend pages still read `.instagramAccount` → runtime crash). rename-sweep cascaded blocked.

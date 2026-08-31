@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getCurrentWorkspaceId } from "@/lib/auth";
 import { getWorkspaceSocialAccount } from "@/lib/social-accounts";
 import { resolveChannel } from "@/lib/channels";
-import { sendDirectMessage, MetaApiError } from "@/lib/meta/client";
+import { MetaApiError } from "@/lib/meta/client";
 import { decryptToken } from "@/lib/meta/oauth";
 
 export interface ConversationListItem {
@@ -134,12 +134,12 @@ export async function POST(request: NextRequest) {
 
   try {
     const accessToken = decryptToken(account.accessToken);
-    const result = await sendDirectMessage(
+    const result = await resolveChannel(account.platform).sendDirectMessage({
       accessToken,
-      account.externalId,
-      body.recipientId,
-      text
-    );
+      accountId: account.externalId,
+      userId: body.recipientId,
+      message: text,
+    });
     return NextResponse.json({ success: true, data: result });
   } catch (err) {
     console.error("[Conversations] Send error:", err);
