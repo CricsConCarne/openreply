@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
     workspace,
     socialAccount,
     instagramAccounts,
+    facebookAccounts,
     totalAutomations,
     activeAutomations,
     dmsSentToday,
@@ -70,7 +71,19 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.socialAccount.findMany({
-      where: { workspaceId },
+      where: { workspaceId, platform: "INSTAGRAM" },
+      orderBy: { connectedAt: "desc" },
+      select: {
+        id: true,
+        username: true,
+        externalId: true,
+        name: true,
+        tokenExpiresAt: true,
+        webhookSubscribed: true,
+      },
+    }),
+    prisma.socialAccount.findMany({
+      where: { workspaceId, platform: "FACEBOOK" },
       orderBy: { connectedAt: "desc" },
       select: {
         id: true,
@@ -197,6 +210,7 @@ export async function GET(request: NextRequest) {
       workspace,
       socialAccount,
       instagramAccounts,
+      facebookAccounts,
       selectedInstagramAccountId: selectedAccountId,
       totalAutomations,
       activeAutomations,

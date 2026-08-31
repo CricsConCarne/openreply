@@ -3,6 +3,9 @@
 import { Suspense, useEffect, useState } from "react";
 import type { AccountOption } from "@/components/account-select";
 import { InstagramConnectNotice } from "@/components/instagram-connect-notice";
+import { FacebookConnectNotice } from "@/components/facebook-connect-notice";
+import { FacebookPagePicker } from "@/components/facebook-page-picker";
+import { PlatformBadge } from "@/components/platform-badge";
 
 interface SettingsData {
   workspace: {
@@ -17,6 +20,12 @@ interface SettingsData {
     webhookSubscribed: boolean;
   } | null;
   instagramAccounts: Array<
+    AccountOption & {
+      tokenExpiresAt: string | null;
+      webhookSubscribed: boolean;
+    }
+  >;
+  facebookAccounts: Array<
     AccountOption & {
       tokenExpiresAt: string | null;
       webhookSubscribed: boolean;
@@ -74,8 +83,8 @@ export default function SettingsPage() {
     if (payload.success) setMembersData(payload.data);
   }
 
-  async function disconnectInstagram(socialAccountId: string) {
-    if (!confirm("Disconnect Instagram? Campaigns for this account will stop sending DMs.")) {
+  async function disconnectAccount(socialAccountId: string, confirmMessage: string) {
+    if (!confirm(confirmMessage)) {
       return;
     }
 
@@ -123,6 +132,7 @@ export default function SettingsPage() {
   }
 
   const accounts = data?.instagramAccounts ?? [];
+  const facebookAccounts = data?.facebookAccounts ?? [];
   const canManageMembers =
     membersData?.currentUserRole === "OWNER" ||
     membersData?.currentUserRole === "ADMIN";
@@ -134,6 +144,14 @@ export default function SettingsPage() {
           page fails the production build without one. */}
       <Suspense fallback={null}>
         <InstagramConnectNotice />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <FacebookConnectNotice />
+      </Suspense>
+
+      <Suspense fallback={null}>
+        <FacebookPagePicker />
       </Suspense>
 
       <section className="panel rounded p-4 sm:p-6">
@@ -183,9 +201,12 @@ export default function SettingsPage() {
                 className="flex flex-col gap-3 rounded border border-border bg-surface/70 p-4 sm:flex-row sm:items-center sm:justify-between"
               >
                 <div>
-                  <p className="text-sm font-semibold text-foreground">
-                    @{account.username}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-foreground">
+                      @{account.username}
+                    </p>
+                    <PlatformBadge platform="INSTAGRAM" />
+                  </div>
                   <p className="mt-1 text-xs text-muted">
                     Token expires{" "}
                     {account.tokenExpiresAt
@@ -195,7 +216,12 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => disconnectInstagram(account.id)}
+                  onClick={() =>
+                    disconnectAccount(
+                      account.id,
+                      "Disconnect Instagram? Campaigns for this account will stop sending DMs."
+                    )
+                  }
                   disabled={busy === `disconnect:${account.id}`}
                   className="inline-flex items-center justify-center rounded border border-error/20 px-4 py-2 text-sm font-medium text-error transition-all hover:border-error/40 hover:bg-error/10 disabled:opacity-50"
                 >
@@ -214,6 +240,96 @@ export default function SettingsPage() {
             className="px-4 py-2 rounded text-sm font-medium transition-colors bg-accent text-white hover:bg-accent-hover"
           >
             {accounts.length > 0 ? "Connect another account" : "Connect Instagram"}
+          </a>
+        </div>
+      </section>
+
+      <section className="panel rounded p-4 sm:p-6">
+        <h2 className="text-base font-semibold mb-6">Facebook Connection</h2>
+
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-3 py-3 border-b border-border">
+            <div>
+              <p className="text-sm font-medium text-foreground">Status</p>
+              <p className="text-xs text-muted mt-0.5">
+                Comment webhooks and private replies depend on this connection.
+              </p>
+            </div>
+            <span
+              className={`px-3 py-1.5 rounded-full text-xs font-medium ${
+                facebookAccounts.length > 0
+                  ? "bg-success/10 text-success"
+                  : "bg-warning/10 text-warning"
+              }`}
+            >
+              {facebookAccounts.length > 0 ? "Connected" : "Not connected"}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-3 py-3 border-b border-border">
+            <div>
+              <p className="text-sm font-medium text-foreground">Pages</p>
+              <p className="text-xs text-muted mt-0.5">
+                {facebookAccounts.length} connected Facebook Page
+                {facebookAccounts.length === 1 ? "" : "s"}
+              </p>
+            </div>
+            <span className="text-sm text-muted">
+              {facebookAccounts.length > 0
+                ? `${facebookAccounts.length} connected`
+                : "None"}
+            </span>
+          </div>
+
+          <div className="space-y-3 py-3">
+            {facebookAccounts.length === 0 && (
+              <p className="text-sm text-muted">
+                Connect a Facebook Page to automate its comments.
+              </p>
+            )}
+            {facebookAccounts.map((account) => (
+              <div
+                key={account.id}
+                className="flex flex-col gap-3 rounded border border-border bg-surface/70 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-foreground">
+                      {account.username}
+                    </p>
+                    <PlatformBadge platform="FACEBOOK" />
+                  </div>
+                  <p className="mt-1 text-xs text-muted">
+                    {account.webhookSubscribed ? "Webhook ready" : "Webhook pending"}
+                  </p>
+                </div>
+                <button
+                  onClick={() =>
+                    disconnectAccount(
+                      account.id,
+                      "Disconnect this Facebook Page? Campaigns for this Page will stop sending replies."
+                    )
+                  }
+                  disabled={busy === `disconnect:${account.id}`}
+                  className="inline-flex items-center justify-center rounded border border-error/20 px-4 py-2 text-sm font-medium text-error transition-all hover:border-error/40 hover:bg-error/10 disabled:opacity-50"
+                >
+                  {busy === `disconnect:${account.id}`
+                    ? "Disconnecting..."
+                    : "Disconnect"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6 pt-4 border-t border-border flex gap-3">
+          <a
+            href="/api/facebook/connect"
+            className="px-4 py-2 rounded text-sm font-medium transition-colors bg-accent text-white hover:bg-accent-hover"
+          >
+            {facebookAccounts.length > 0
+              ? "Connect another Page"
+              : "Connect Facebook Page"}
           </a>
         </div>
       </section>
