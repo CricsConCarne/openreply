@@ -15,6 +15,8 @@ const {
   mockQueueAdd,
   mockReserveWorkspaceDMSend,
   mockReleaseWorkspaceDMReservation,
+  mockResolveChannel,
+  mockReplyToComment,
 } = vi.hoisted(() => ({
   mockPrisma: {
     automation: {
@@ -48,6 +50,8 @@ const {
   mockQueueAdd: vi.fn(),
   mockReserveWorkspaceDMSend: vi.fn(),
   mockReleaseWorkspaceDMReservation: vi.fn(),
+  mockResolveChannel: vi.fn(),
+  mockReplyToComment: vi.fn(),
 }));
 
 vi.mock("@/lib/db/client", () => ({
@@ -83,6 +87,96 @@ vi.mock("@/lib/meta/client", () => ({
     name = "RateLimitError";
   },
 }));
+
+// The worker resolves an I/O provider via the channel seam. The mock provider
+// delegates each call to the same meta-client mocks the pre-seam worker used, so
+// every existing positional assertion on those mocks stays valid unchanged.
+vi.mock("@/lib/channels", () => ({
+  resolveChannel: mockResolveChannel,
+}));
+
+const mockChannelProvider = {
+  platform: "INSTAGRAM",
+  sendPrivateReply: (p: {
+    accessToken: string;
+    accountId: string;
+    commentId: string;
+    message: string;
+  }) => mockSendPrivateReply(p.accessToken, p.accountId, p.commentId, p.message),
+  sendPrivateReplyWithButton: (p: {
+    accessToken: string;
+    accountId: string;
+    commentId: string;
+    text: string;
+    buttonTitle: string;
+    payload: string;
+  }) =>
+    mockSendPrivateReplyWithButton(
+      p.accessToken,
+      p.accountId,
+      p.commentId,
+      p.text,
+      p.buttonTitle,
+      p.payload
+    ),
+  sendPrivateReplyWithLinkButton: (p: {
+    accessToken: string;
+    accountId: string;
+    commentId: string;
+    text: string;
+    buttons: unknown;
+  }) =>
+    mockSendPrivateReplyWithLinkButton(
+      p.accessToken,
+      p.accountId,
+      p.commentId,
+      p.text,
+      p.buttons
+    ),
+  sendDirectMessage: (p: {
+    accessToken: string;
+    accountId: string;
+    userId: string;
+    message: string;
+  }) => mockSendDirectMessage(p.accessToken, p.accountId, p.userId, p.message),
+  sendDirectMessageWithButton: (p: {
+    accessToken: string;
+    accountId: string;
+    userId: string;
+    text: string;
+    buttonTitle: string;
+    payload: string;
+  }) =>
+    mockSendDirectMessageWithButton(
+      p.accessToken,
+      p.accountId,
+      p.userId,
+      p.text,
+      p.buttonTitle,
+      p.payload
+    ),
+  sendDirectMessageWithLinkButton: (p: {
+    accessToken: string;
+    accountId: string;
+    userId: string;
+    text: string;
+    buttons: unknown;
+  }) =>
+    mockSendDirectMessageWithLinkButton(
+      p.accessToken,
+      p.accountId,
+      p.userId,
+      p.text,
+      p.buttons
+    ),
+  replyToComment: (p: {
+    accessToken: string;
+    commentId: string;
+    message: string;
+  }) => mockReplyToComment(p.accessToken, p.commentId, p.message),
+  getFollowStatus: (p: { accessToken: string; recipientId: string }) =>
+    mockGetUserFollowStatus(p.accessToken, p.recipientId),
+};
 
 vi.mock("@/lib/meta/oauth", () => ({
   decryptToken: mockDecryptToken,
@@ -213,6 +307,9 @@ function createMockPostbackJob(
 beforeEach(() => {
   vi.clearAllMocks();
 
+  mockChannelProvider.platform = "INSTAGRAM";
+  mockResolveChannel.mockReturnValue(mockChannelProvider);
+  mockReplyToComment.mockResolvedValue(undefined);
   mockPrisma.automation.findMany.mockResolvedValue([mockAutomation]);
   mockPrisma.automation.findFirst.mockResolvedValue(null);
   mockPrisma.dmLog.findUnique.mockResolvedValue(null);
@@ -1066,19 +1163,33 @@ describe("DM Worker — DM keyword trigger", () => {
     expect(mockSendDirectMessage).not.toHaveBeenCalled();
   });
 
-  // First contact, so the gate is fail-closed like processComment: an
-  // unverifiable status must not hand out the link.
-  it("should send the follow prompt when follow status cannot be verified", async () => {
+  // FR-5: a null follow status means the channel has no follow gate, so a
+  // follow-gated automation proceeds ungated (delivers the link) and records a
+  // WARNING rather than gating on a check the platform cannot answer.
+  it("should deliver ungated and warn when the channel has no follow gate", async () => {
     mockPrisma.automation.findMany.mockResolvedValue([
       { ...dmTriggerAutomation, requireFollow: true },
     ]);
+    mockChannelProvider.platform = "FACEBOOK";
     mockGetUserFollowStatus.mockResolvedValue(null);
 
     const processor = getProcessor();
     await processor(createMockMessageJob());
 
-    expect(mockSendDirectMessageWithButton).toHaveBeenCalled();
-    expect(mockSendDirectMessage).not.toHaveBeenCalled();
+    expect(mockSendDirectMessage).toHaveBeenCalled();
+    expect(mockSendDirectMessageWithButton).not.toHaveBeenCalled();
+    expect(mockPrisma.operationalEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          level: "WARNING",
+          source: "WORKER",
+          payload: expect.objectContaining({
+            automationId: "auto_789",
+            platform: "FACEBOOK",
+          }),
+        }),
+      })
+    );
   });
 
   it("should skip and log when the workspace is over its monthly limit", async () => {
@@ -1116,6 +1227,48 @@ describe("DM Worker — DM keyword trigger", () => {
     expect(mockPrisma.dmLog.upsert).toHaveBeenCalledWith(
       expect.objectContaining({
         create: expect.objectContaining({ status: "FAILED" }),
+      })
+    );
+  });
+});
+
+describe("DM Worker — channel seam", () => {
+  it("resolves the provider from the job's platform and sends through it", async () => {
+    const processor = getProcessor();
+
+    await processor(createMockJob());
+
+    // The send path goes through the resolved provider, keyed on job.platform —
+    // never a platform-specific client called directly.
+    expect(mockResolveChannel).toHaveBeenCalledWith("INSTAGRAM");
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+  });
+
+  it("proceeds ungated and records a WARNING when a follow-gated comment runs on a gateless channel (FR-5)", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([
+      { ...mockAutomation, requireFollow: true },
+    ]);
+    mockChannelProvider.platform = "FACEBOOK";
+    mockGetUserFollowStatus.mockResolvedValue(null); // no follow gate on this platform
+
+    const processor = getProcessor();
+    await processor(createMockJob());
+
+    // Delivered ungated: the reveal private reply goes out, not the follow prompt.
+    expect(mockSendPrivateReply).toHaveBeenCalled();
+    expect(mockSendPrivateReplyWithButton).not.toHaveBeenCalled();
+
+    // The skipped gate is recorded visibly, never a silent no-op.
+    expect(mockPrisma.operationalEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          level: "WARNING",
+          source: "WORKER",
+          payload: expect.objectContaining({
+            automationId: "auto_789",
+            platform: "FACEBOOK",
+          }),
+        }),
       })
     );
   });
