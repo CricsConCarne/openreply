@@ -41,6 +41,12 @@ Reviewers want to see the permission produce a real result for a real user. This
 - Users can disconnect Instagram from Settings.
 - Per-account rate limiting and deduplication prevent spammy behavior.
 
+## Facebook Pages
+
+The same rationale applies to the Facebook channel, one-to-one. Running your own Pages needs no App Review: `pages_messaging` under Standard Access already covers Pages administered by an account that has a role on your app (Admin, Developer, or Tester), so the App Roles escape hatch is the whole requirement — see the "Connecting a Facebook Page" section of [docs/setup.md](docs/setup.md).
+
+You only reach for App Review on Facebook for the same reason you would on Instagram: to let people who are *not* roled on your app connect *their* own Pages. Advanced Access governs the recipient identically on both channels — it widens *whose* Pages or accounts you may act on, never what the app does — so Facebook adds no review ceiling that Instagram does not already impose. If you already justified the Instagram permissions above, the Facebook Page equivalents (`pages_show_list`, `pages_messaging`, `pages_read_engagement`, `pages_manage_engagement`, `pages_manage_metadata`) reuse the same one-reply-per-comment, own-content-only positioning.
+
 ## Business verification
 
-Meta usually requires business verification before granting Advanced Access. It asks for a document proving a legal entity: a business registration or license, articles of incorporation, a business tax document, or a business bank statement. If you do not have a registered business, you cannot complete this step, and the practical path is to run OpenReply for your own accounts instead, which never needs review.
+Meta usually requires business verification before granting Advanced Access. It asks for a document proving a legal entity: a business registration or license, articles of incorporation, a business tax document, or a business bank statement. If you do not have a registered business, you cannot complete this step, and the practical path is to run OpenReply for your own accounts and Pages instead, which never needs review.

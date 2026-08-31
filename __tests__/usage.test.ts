@@ -114,6 +114,41 @@ describe("reserveWorkspaceDMSend", () => {
   });
 });
 
+// Cross-platform hardening: billing is per-workspace and never reads platform,
+// so a DM sent for a Facebook automation increments usage exactly like an
+// Instagram one. The reservation keys solely on workspaceId
+// (lib/billing/usage.ts:48-94) — there is no platform column in the path.
+describe("reserveWorkspaceDMSend — Facebook send increments the same workspace counter", () => {
+  it("increments usage for a Facebook-account workspace with no platform branch", async () => {
+    const periodStart = new Date("2026-05-01T00:00:00.000Z");
+    mockTx.workspace.updateMany
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ count: 1 });
+    mockTx.workspace.findUnique.mockResolvedValueOnce({
+      usagePeriodStart: periodStart,
+      dmsSentThisPeriod: 42,
+    });
+
+    const result = await reserveWorkspaceDMSend("fb_workspace_123");
+
+    expect(result).toEqual({
+      allowed: true,
+      reserved: true,
+      remaining: LIMIT - 43,
+      limit: LIMIT,
+      periodStart,
+    });
+    expect(mockTx.workspace.updateMany).toHaveBeenNthCalledWith(2, {
+      where: {
+        id: "fb_workspace_123",
+        usagePeriodStart: { gte: new Date(2026, 4, 1) },
+        dmsSentThisPeriod: { lt: LIMIT },
+      },
+      data: { dmsSentThisPeriod: { increment: 1 } },
+    });
+  });
+});
+
 describe("releaseWorkspaceDMReservation", () => {
   it("decrements only the reserved period", async () => {
     const periodStart = new Date("2026-05-01T00:00:00.000Z");
