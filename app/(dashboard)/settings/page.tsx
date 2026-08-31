@@ -9,10 +9,10 @@ interface SettingsData {
     name: string;
     dmsSentThisPeriod: number;
   };
-  instagramAccount: {
+  socialAccount: {
     id: string;
     username: string;
-    instagramId: string;
+    externalId: string;
     tokenExpiresAt: string | null;
     webhookSubscribed: boolean;
   } | null;
@@ -74,16 +74,16 @@ export default function SettingsPage() {
     if (payload.success) setMembersData(payload.data);
   }
 
-  async function disconnectInstagram(instagramAccountId: string) {
+  async function disconnectInstagram(socialAccountId: string) {
     if (!confirm("Disconnect Instagram? Campaigns for this account will stop sending DMs.")) {
       return;
     }
 
-    setBusy(`disconnect:${instagramAccountId}`);
+    setBusy(`disconnect:${socialAccountId}`);
     await fetch("/api/instagram/disconnect", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ instagramAccountId }),
+      body: JSON.stringify({ socialAccountId }),
     });
     window.location.reload();
   }

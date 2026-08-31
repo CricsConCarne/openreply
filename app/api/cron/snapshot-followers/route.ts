@@ -25,13 +25,13 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const accounts = await prisma.instagramAccount.findMany({
+  const accounts = await prisma.socialAccount.findMany({
     where: { accessToken: { not: "" } },
     select: {
       id: true,
       workspaceId: true,
       username: true,
-      instagramId: true,
+      externalId: true,
       accessToken: true,
     },
   });
@@ -58,13 +58,13 @@ export async function GET(request: NextRequest) {
 
       // First time we see this account, try to recover the last 30 days.
       const existing = await prisma.followerSnapshot.count({
-        where: { instagramAccountId: account.id },
+        where: { socialAccountId: account.id },
       });
       if (existing <= 1) {
         backfilled += await backfillFollowerHistory(
           account.id,
           token,
-          account.instagramId,
+          account.externalId,
           info.followers_count
         );
       }

@@ -98,6 +98,7 @@ Copy `.env.example` to `.env` for local work, or set these in Vercel and Railway
 | `META_GRAPH_API_VERSION` | Graph API version, for example `v25.0`. |
 | `INSTAGRAM_APP_ID` | From the Meta app, see Step 6. |
 | `INSTAGRAM_APP_SECRET` | From the Meta app. |
+| `FACEBOOK_APP_ID` | From the Meta app. |
 | `FACEBOOK_APP_SECRET` | From the Meta app. |
 | `WEBHOOK_VERIFY_TOKEN` | Any random string. You paste the same value into Meta's webhook config. |
 
@@ -134,6 +135,7 @@ There are two app secrets and two app IDs, which is confusing. Here is what maps
 | --- | --- |
 | `INSTAGRAM_APP_ID` | Instagram, API setup with Instagram login. A number like `2036...` |
 | `INSTAGRAM_APP_SECRET` | Same page, click Show |
+| `FACEBOOK_APP_ID` | App settings, Basic, App ID |
 | `FACEBOOK_APP_SECRET` | App settings, Basic, App secret, click Show |
 
 The Instagram app ID is not the same number as the Facebook App ID shown on the Basic settings page. Use the one under the Instagram product.

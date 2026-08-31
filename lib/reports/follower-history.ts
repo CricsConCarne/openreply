@@ -33,14 +33,14 @@ function toIsoDay(date: Date): string {
  * rather than adding another, so the daily cron is safe to retry.
  */
 export async function recordFollowerSnapshot(
-  instagramAccountId: string,
+  socialAccountId: string,
   followersCount: number
 ): Promise<void> {
   const date = toUtcDay(new Date());
 
   await prisma.followerSnapshot.upsert({
-    where: { instagramAccountId_date: { instagramAccountId, date } },
-    create: { instagramAccountId, date, followersCount, backfilled: false },
+    where: { socialAccountId_date: { socialAccountId, date } },
+    create: { socialAccountId, date, followersCount, backfilled: false },
     // An observed count always supersedes a backfilled estimate for the day.
     update: { followersCount, backfilled: false },
   });
@@ -88,14 +88,14 @@ export function reconstructFollowerTotals(
  * unavailable, which is expected for small or unsupported accounts.
  */
 export async function backfillFollowerHistory(
-  instagramAccountId: string,
+  socialAccountId: string,
   accessToken: string,
-  instagramId: string,
+  externalId: string,
   currentFollowers: number
 ): Promise<number> {
   let series: FollowerCountPoint[] | null;
   try {
-    series = await getFollowerCountSeries(accessToken, instagramId);
+    series = await getFollowerCountSeries(accessToken, externalId);
   } catch {
     // PermissionError and friends — nothing to backfill from.
     return 0;
@@ -110,7 +110,7 @@ export async function backfillFollowerHistory(
 
   const existing = await prisma.followerSnapshot.findMany({
     where: {
-      instagramAccountId,
+      socialAccountId,
       date: { in: totals.map((t) => t.date) },
       backfilled: false,
     },
@@ -125,10 +125,10 @@ export async function backfillFollowerHistory(
     writable.map((t) =>
       prisma.followerSnapshot.upsert({
         where: {
-          instagramAccountId_date: { instagramAccountId, date: t.date },
+          socialAccountId_date: { socialAccountId, date: t.date },
         },
         create: {
-          instagramAccountId,
+          socialAccountId,
           date: t.date,
           followersCount: t.followers,
           backfilled: true,
@@ -146,14 +146,14 @@ export async function backfillFollowerHistory(
  * converted to ascending order for charting.
  */
 export async function getFollowerHistory(
-  instagramAccountId: string,
+  socialAccountId: string,
   days: number = 90
 ): Promise<FollowerHistoryPoint[]> {
   const since = toUtcDay(new Date());
   since.setUTCDate(since.getUTCDate() - Math.max(days, 1));
 
   const rows = await prisma.followerSnapshot.findMany({
-    where: { instagramAccountId, date: { gte: since } },
+    where: { socialAccountId, date: { gte: since } },
     orderBy: { date: "asc" },
     select: { date: true, followersCount: true },
   });
@@ -171,7 +171,7 @@ export async function getFollowerHistory(
  * without waiting for the next cron run.
  */
 export async function ensureFollowerHistory(
-  account: { id: string; instagramId: string },
+  account: { id: string; externalId: string },
   accessToken: string
 ): Promise<number | null> {
   const info = await getUserInfo(accessToken);
@@ -181,13 +181,13 @@ export async function ensureFollowerHistory(
   await recordFollowerSnapshot(account.id, followers);
 
   const count = await prisma.followerSnapshot.count({
-    where: { instagramAccountId: account.id },
+    where: { socialAccountId: account.id },
   });
   if (count <= 1) {
     await backfillFollowerHistory(
       account.id,
       accessToken,
-      account.instagramId,
+      account.externalId,
       followers
     );
   }

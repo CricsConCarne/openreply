@@ -19,7 +19,7 @@ const createAutomationSchema = z
   .object({
     name: z.string().min(1).max(100),
     goal: z.string().min(1).max(120).optional().nullable(),
-    instagramAccountId: z.string().min(1).optional().nullable(),
+    socialAccountId: z.string().min(1).optional().nullable(),
     postId: z.string().min(1).optional().nullable(),
     postUrl: z.string().url().optional().nullable(),
     pendingNextReel: z.boolean().optional().default(false),
@@ -129,18 +129,18 @@ export async function GET(request: NextRequest) {
       { status: 401 }
     );
   }
-  const instagramAccountId =
-    request.nextUrl.searchParams.get("instagramAccountId");
+  const socialAccountId =
+    request.nextUrl.searchParams.get("socialAccountId");
   const accountFilter =
-    instagramAccountId && instagramAccountId !== "all"
-      ? { instagramAccountId }
+    socialAccountId && socialAccountId !== "all"
+      ? { socialAccountId }
       : {};
 
   const automations = await prisma.automation.findMany({
     where: { workspaceId, ...accountFilter },
     include: {
-      instagramAccount: {
-        select: { username: true, instagramId: true },
+      socialAccount: {
+        select: { username: true, externalId: true },
       },
       _count: {
         select: { dmLogs: true },
@@ -307,21 +307,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const requestedInstagramAccountId =
-    parsed.data.instagramAccountId && parsed.data.instagramAccountId !== "all"
-      ? parsed.data.instagramAccountId
+  const requestedSocialAccountId =
+    parsed.data.socialAccountId && parsed.data.socialAccountId !== "all"
+      ? parsed.data.socialAccountId
       : null;
 
-  const [workspace, instagramAccount] = await Promise.all([
+  const [workspace, socialAccount] = await Promise.all([
     prisma.workspace.findUnique({
       where: { id: workspaceId },
       select: { id: true },
     }),
-    requestedInstagramAccountId
-      ? prisma.instagramAccount.findFirst({
-          where: { id: requestedInstagramAccountId, workspaceId },
+    requestedSocialAccountId
+      ? prisma.socialAccount.findFirst({
+          where: { id: requestedSocialAccountId, workspaceId },
         })
-      : prisma.instagramAccount.findFirst({
+      : prisma.socialAccount.findFirst({
           where: { workspaceId },
           orderBy: { connectedAt: "desc" },
         }),
@@ -334,7 +334,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (!instagramAccount) {
+  if (!socialAccount) {
     return NextResponse.json(
       { success: false, error: "Connect Instagram before creating campaigns" },
       { status: 400 }
@@ -428,7 +428,7 @@ export async function POST(request: NextRequest) {
       isActive: parsed.data.isActive,
       wholeWordMatch: parsed.data.wholeWordMatch,
       workspaceId,
-      instagramAccountId: instagramAccount.id,
+      socialAccountId: socialAccount.id,
       reportShareSlug: generateReportShareSlug(),
       ...(linkCreates.length > 0
         ? { trackedLinks: { create: linkCreates } }

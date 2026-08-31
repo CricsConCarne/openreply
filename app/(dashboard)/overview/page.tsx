@@ -43,7 +43,7 @@ export default function OverviewPage() {
   useEffect(() => {
     const params = new URLSearchParams();
     if (selectedAccountId !== "all") {
-      params.set("instagramAccountId", selectedAccountId);
+      params.set("socialAccountId", selectedAccountId);
     }
     params.set("count", count);
 
@@ -146,7 +146,7 @@ export default function OverviewPage() {
               accounts={accounts.map((a) => ({
                 id: a.id,
                 username: a.username,
-                instagramId: a.id,
+                externalId: a.id,
               }))}
               value={selectedAccountId}
               onChange={handleAccountChange}

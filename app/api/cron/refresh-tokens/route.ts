@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const accountsToRefresh = await prisma.instagramAccount.findMany({
+  const accountsToRefresh = await prisma.socialAccount.findMany({
     where: {
       accessToken: { not: "" },
       tokenExpiresAt: {
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   });
 
   const results: Array<{
-    instagramAccountId: string;
+    socialAccountId: string;
     username: string;
     status: "refreshed" | "failed";
     error?: string;
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
       const encryptedToken = encryptToken(newToken);
       const newExpiry = new Date(Date.now() + expiresIn * 1000);
 
-      await prisma.instagramAccount.update({
+      await prisma.socialAccount.update({
         where: { id: account.id },
         data: {
           accessToken: encryptedToken,
@@ -69,7 +69,7 @@ export async function GET(request: NextRequest) {
       });
 
       results.push({
-        instagramAccountId: account.id,
+        socialAccountId: account.id,
         username: account.username,
         status: "refreshed",
       });
@@ -82,14 +82,14 @@ export async function GET(request: NextRequest) {
           level: "ERROR",
           message: `Token refresh failed for @${account.username}: ${errorMessage}`,
           payload: {
-            instagramAccountId: account.id,
+            socialAccountId: account.id,
             username: account.username,
           },
         },
       });
 
       results.push({
-        instagramAccountId: account.id,
+        socialAccountId: account.id,
         username: account.username,
         status: "failed",
         error: errorMessage,
