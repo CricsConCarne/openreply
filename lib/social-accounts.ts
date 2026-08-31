@@ -1,14 +1,17 @@
+import type { SocialPlatform } from "@/app/generated/prisma/client";
 import { prisma } from "@/lib/db/client";
 
 export async function canConnectSocialAccount({
   workspaceId,
   externalId,
+  platform = "INSTAGRAM",
 }: {
   workspaceId: string;
   externalId: string;
+  platform?: SocialPlatform;
 }) {
   const existingAccount = await prisma.socialAccount.findUnique({
-    where: { platform_externalId: { platform: "INSTAGRAM", externalId } },
+    where: { platform_externalId: { platform, externalId } },
     select: { workspaceId: true },
   });
 
