@@ -46,6 +46,26 @@ export function getMissingInstagramOAuthEnv(): string[] {
   });
 }
 
+// The Facebook OAuth round trip needs the same shape of preflight as Instagram:
+// the Facebook app credentials plus the shared token-encryption and session
+// secrets. Mirrored so a half-filled .env names the gaps instead of throwing.
+const FACEBOOK_OAUTH_ENV = [
+  "FACEBOOK_APP_ID",
+  "FACEBOOK_APP_SECRET",
+  "ENCRYPTION_KEY",
+  "NEXTAUTH_SECRET",
+] as const;
+
+export function getMissingFacebookOAuthEnv(): string[] {
+  return FACEBOOK_OAUTH_ENV.filter((name) => {
+    const value = process.env[name];
+    if (!value) return true;
+    // A malformed key fails later inside encryptToken, after the user has
+    // already round-tripped through Meta — catch the bad format here instead.
+    return name === "ENCRYPTION_KEY" && !HEX_32_BYTE.test(value);
+  });
+}
+
 export function getMetaGraphApiVersion(): string {
   return process.env.META_GRAPH_API_VERSION ?? "v25.0";
 }
@@ -58,6 +78,7 @@ export const serverEnvSchema = z.object({
   ENCRYPTION_KEY: z.string().regex(HEX_32_BYTE),
   INSTAGRAM_APP_ID: z.string().min(1),
   INSTAGRAM_APP_SECRET: z.string().min(1),
+  FACEBOOK_APP_ID: z.string().min(1),
   FACEBOOK_APP_SECRET: z.string().min(1),
   WEBHOOK_VERIFY_TOKEN: z.string().min(1),
 });
