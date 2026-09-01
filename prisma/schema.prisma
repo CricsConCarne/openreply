@@ -235,6 +235,14 @@ model DmLog {
   dmSentAt      DateTime?
   errorMessage  String?
 
+  // The comment's original time on the platform (Meta `created_time` /
+  // `timestamp`), as opposed to `createdAt`, which is when our system first
+  // queued the row. Only the polling/lookback path knows it (the webhook
+  // payload drops it), so it is nullable. The lookback scheduler reads it to
+  // send at the same UTC time-of-day the lead was last active and to stay
+  // inside Meta's 7-day private-reply window.
+  commentedAt   DateTime?
+
   // The public comment reply is delivered independently of the DM, so its
   // outcome is tracked separately. publicReplySentAt makes it idempotent across
   // retries; a DM failure never blocks or re-posts the public reply.

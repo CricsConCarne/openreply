@@ -42,7 +42,7 @@ vi.mock("@/lib/queue/client", () => ({
   getDMQueue: () => ({ add: mockQueueAdd }),
 }));
 
-import { reconcileComments } from "@/lib/polling/comment-reconciler";
+import { reconcileComments, runLookback } from "@/lib/polling/comment-reconciler";
 import type { ChannelComment } from "@/lib/channels/types";
 
 const OWNER_ID = "owner1";
@@ -150,6 +150,61 @@ describe("reconcileComments — consumes normalized ownerReplied, not raw edges"
     await reconcileComments();
 
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe("runLookback — Facebook backlog scheduling", () => {
+  function fbAutomation() {
+    return automation({
+      socialAccount: {
+        id: "fb1",
+        platform: "FACEBOOK",
+        externalId: OWNER_ID,
+        username: "page",
+        accessToken: "encrypted",
+      },
+    });
+  }
+
+  it("scopes the query to active Facebook accounts", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([]);
+
+    await runLookback();
+
+    const [args] = mockPrisma.automation.findMany.mock.calls[0];
+    expect(args.where.isActive).toBe(true);
+    expect(args.where.socialAccount.platform).toBe("FACEBOOK");
+  });
+
+  it("enqueues a reachable lead delayed with the public reply suppressed, and skips an expired one", async () => {
+    // 2d6h old ⇒ the next same-time-of-day slot is ~18h out (a positive delay).
+    const recent = new Date(
+      Date.now() - (2 * 24 + 6) * 60 * 60 * 1000
+    ).toISOString();
+    // 30 days old ⇒ past the 7-day window, unreachable.
+    const stale = new Date(
+      Date.now() - 30 * 24 * 60 * 60 * 1000
+    ).toISOString();
+
+    mockPrisma.automation.findMany.mockResolvedValue([fbAutomation()]);
+    mockGetRecentComments.mockResolvedValue([
+      comment({ id: "reachable", authorId: "fan1", timestamp: recent }),
+      comment({ id: "expired", authorId: "fan2", timestamp: stale }),
+    ]);
+
+    const summary = await runLookback();
+
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    const [name, job, options] = mockQueueAdd.mock.calls[0];
+    expect(name).toBe("process-comment");
+    expect(job.commentId).toBe("reachable");
+    expect(job.commentedAt).toBe(recent);
+    expect(job.suppressPublicReply).toBe(true);
+    expect(job.source).toBe("POLLING");
+    expect(options.delay).toBeGreaterThan(0);
+
+    expect(summary.enqueued).toBe(1);
+    expect(summary.unreachable).toBe(1);
   });
 });
 

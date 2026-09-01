@@ -244,9 +244,15 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
     commenterName,
     mediaId,
     originalMediaId,
+    commentedAt,
+    suppressPublicReply,
   } = job.data;
   const requeueAttempt = job.data.requeueAttempt ?? 0;
   const channel = resolveChannel(platform);
+  // The comment's original platform time, when the enqueuer knew it (polling /
+  // lookback). Recorded on the DmLog so the lead's real age is auditable and so
+  // a later lookback can schedule off it.
+  const commentedAtDate = commentedAt ? new Date(commentedAt) : undefined;
 
   const automations = await prisma.automation.findMany({
     where: {
@@ -331,6 +337,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commenterName,
           commentText,
           commentId,
+          commentedAt: commentedAtDate,
           matchedKeyword: matchResult.matchedKeyword,
           status: "FAILED",
           errorMessage: "No access token available for the connected account",
@@ -362,6 +369,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commenterName,
           commentText,
           commentId,
+          commentedAt: commentedAtDate,
           matchedKeyword: matchResult.matchedKeyword,
           status: "FAILED",
           errorMessage: "Failed to decrypt the account access token",
@@ -387,6 +395,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commenterName,
           commentText,
           commentId,
+          commentedAt: commentedAtDate,
           matchedKeyword: matchResult.matchedKeyword,
           status: "PENDING",
           attempts: job.attemptsMade + 1,
@@ -417,6 +426,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           : [];
     if (
       automation.publicReplyEnabled &&
+      !suppressPublicReply &&
       replyPool.length > 0 &&
       !existingLog?.publicReplySentAt
     ) {

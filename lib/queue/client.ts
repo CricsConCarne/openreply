@@ -40,6 +40,14 @@ export interface ProcessCommentJob {
   // deterministic BullMQ job id (comment_<externalId>_<commentId>) and the
   // DmLog @@unique([automationId, commentId]) guard.
   source?: CommentSource;
+  // The comment's original platform time (ISO 8601), threaded through from the
+  // reconciler so the worker can persist DmLog.commentedAt. Absent on the
+  // webhook path, which does not carry a per-comment timestamp.
+  commentedAt?: string;
+  // Set by the lookback backfill: skip the public comment reply for this job.
+  // Replying publicly to a days-old comment reads as odd, so a lookback sends
+  // the DM only.
+  suppressPublicReply?: boolean;
 }
 
 // Delivered when a user taps an opening DM's button — carries the reveal target.
