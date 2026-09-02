@@ -14,7 +14,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { SocialPlatform } from "@/app/generated/prisma/client";
+// Import the enum from the generated `enums` entrypoint, not the `client`
+// barrel: this is a client component, and the barrel drags Prisma's Node
+// runtime (node:module) into the browser chunk, which Turbopack cannot bundle.
+// enums.ts is pure constants and is documented as safe to import directly.
+import { SocialPlatform } from "@/app/generated/prisma/enums";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import PostPicker from "@/components/post-picker";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
