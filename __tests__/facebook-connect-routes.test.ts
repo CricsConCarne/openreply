@@ -200,6 +200,11 @@ describe("GET /api/facebook/pages", () => {
   it("paginates /me/accounts and flags cross-workspace Pages", async () => {
     connectedContext();
     const fetchMock = vi.fn(async (input: string) => {
+      // No Business Portfolios in this case — keep the test focused on the
+      // /me/accounts pagination path.
+      if (input.includes("/me/businesses")) {
+        return jsonResponse({ data: [], paging: {} });
+      }
       if (input.includes("cursor=2")) {
         return jsonResponse({ data: [page("page_b", "Page B")], paging: {} });
       }
@@ -219,7 +224,8 @@ describe("GET /api/facebook/pages", () => {
     const response = await listPages(requestWithToken("GET", USER_TOKEN));
     const body = await response.json();
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // Two /me/accounts pages + one (empty) /me/businesses lookup.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(body.pages).toEqual([
       { id: "page_a", name: "Page A", category: "Business", alreadyConnected: false },
       { id: "page_b", name: "Page B", category: "Business", alreadyConnected: true },

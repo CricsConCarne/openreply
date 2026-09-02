@@ -4,12 +4,13 @@ import {
   exchangeCodeForFacebookToken,
   exchangeForLongLivedUserToken,
   getFacebookAuthorizationUrl,
+  getFacebookUserPages,
   verifyOAuthState,
 } from "../lib/meta/facebook-oauth";
 
 const REDIRECT_URI = "https://app.example.com/api/facebook/callback";
 const EXPECTED_SCOPES =
-  "pages_show_list,pages_messaging,pages_read_engagement,pages_manage_engagement,pages_manage_metadata";
+  "pages_show_list,pages_messaging,pages_read_engagement,pages_manage_engagement,pages_manage_metadata,business_management";
 
 beforeEach(() => {
   vi.stubEnv("NEXTAUTH_SECRET", "test-secret-with-enough-length");
@@ -162,5 +163,83 @@ describe("OAuth state round-trip (reused HMAC helper)", () => {
 
   it("rejects a null state", () => {
     expect(verifyOAuthState(null)).toBeNull();
+  });
+});
+
+describe("getFacebookUserPages", () => {
+  // Route a Graph fetch by URL substring so a single call to
+  // getFacebookUserPages can walk /me/accounts, /me/businesses and the
+  // per-business Page edges with different responses.
+  function mockGraph(handler: (url: string) => { ok?: boolean; body: unknown } | "reject") {
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      const result = handler(url);
+      if (result === "reject") throw new Error("network");
+      return {
+        ok: result.ok ?? true,
+        url,
+        json: async () => result.body,
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("includes Business-Portfolio-owned Pages that /me/accounts omits", async () => {
+    mockGraph((url) => {
+      if (url.includes("/me/accounts")) return { body: { data: [] } };
+      if (url.includes("/me/businesses")) return { body: { data: [{ id: "biz1" }] } };
+      if (url.includes("/biz1/owned_pages"))
+        return {
+          body: {
+            data: [
+              { id: "page1", name: "DAS Replay", access_token: "page-token", category: "Business" },
+            ],
+          },
+        };
+      return { body: { data: [] } }; // client_pages
+    });
+
+    const pages = await getFacebookUserPages("user-token");
+
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toMatchObject({
+      id: "page1",
+      name: "DAS Replay",
+      access_token: "page-token",
+    });
+  });
+
+  it("resolves a Page token separately when the business edge omits it", async () => {
+    mockGraph((url) => {
+      if (url.includes("/me/accounts")) return { body: { data: [] } };
+      if (url.includes("/me/businesses")) return { body: { data: [{ id: "biz1" }] } };
+      if (url.includes("/biz1/owned_pages"))
+        return { body: { data: [{ id: "page2", name: "Tokenless" }] } };
+      if (url.includes("/biz1/client_pages")) return { body: { data: [] } };
+      // Per-page token lookup: GET /page2?fields=access_token,name,category
+      if (url.includes("/page2"))
+        return { body: { access_token: "fetched-token", name: "Tokenless", category: "Brand" } };
+      return { body: { data: [] } };
+    });
+
+    const pages = await getFacebookUserPages("user-token");
+
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toMatchObject({ id: "page2", access_token: "fetched-token" });
+  });
+
+  it("degrades to directly-administered Pages when business access is unavailable", async () => {
+    mockGraph((url) => {
+      if (url.includes("/me/accounts"))
+        return { body: { data: [{ id: "p0", name: "Direct Page", access_token: "t0" }] } };
+      if (url.includes("/me/businesses")) return "reject"; // e.g. business_management not granted
+      return { body: { data: [] } };
+    });
+
+    const pages = await getFacebookUserPages("user-token");
+
+    expect(pages).toHaveLength(1);
+    expect(pages[0]).toMatchObject({ id: "p0", access_token: "t0" });
   });
 });
