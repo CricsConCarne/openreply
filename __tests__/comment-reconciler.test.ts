@@ -206,6 +206,22 @@ describe("runLookback — Facebook backlog scheduling", () => {
     expect(summary.enqueued).toBe(1);
     expect(summary.unreachable).toBe(1);
   });
+
+  it("leaves the public reply un-suppressed when suppressPublicReply is false", async () => {
+    const recent = new Date(
+      Date.now() - (2 * 24 + 6) * 60 * 60 * 1000
+    ).toISOString();
+
+    mockPrisma.automation.findMany.mockResolvedValue([fbAutomation()]);
+    mockGetRecentComments.mockResolvedValue([
+      comment({ id: "reachable", authorId: "fan1", timestamp: recent }),
+    ]);
+
+    await runLookback({ suppressPublicReply: false });
+
+    const [, job] = mockQueueAdd.mock.calls[0];
+    expect(job.suppressPublicReply).toBeUndefined();
+  });
 });
 
 describe("reconcileComments — matchAnyPost uses provider.listPosts", () => {

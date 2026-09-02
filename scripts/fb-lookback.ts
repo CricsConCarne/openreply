@@ -17,6 +17,8 @@
  *   FB_LOOKBACK_FINAL_DAY      "immediate" (default) | "skip" — what to do for a
  *                              lead whose only in-window time is off-hours
  *   FB_LOOKBACK_MARGIN_HOURS   margin before the window edge (default 2)
+ *   FB_LOOKBACK_PUBLIC_REPLY   "yes" to also post the public reply (campaign must
+ *                              have publicReplyEnabled); default DM-only
  *
  * Guarded by FB_LOOKBACK_CONFIRM=yes because it sends real DMs to real people.
  */
@@ -45,6 +47,12 @@ function readFinalDay(): LookbackOptions["finalDay"] {
   return raw;
 }
 
+function readSuppressPublicReply(): boolean | undefined {
+  const raw = process.env.FB_LOOKBACK_PUBLIC_REPLY;
+  if (raw === undefined || raw === "") return undefined;
+  return raw !== "yes";
+}
+
 function readOptions(): LookbackOptions {
   const marginHours = numberEnv("FB_LOOKBACK_MARGIN_HOURS");
   return {
@@ -53,6 +61,7 @@ function readOptions(): LookbackOptions {
     maxPerSweep: numberEnv("FB_LOOKBACK_MAX_PER_SWEEP"),
     marginMs: marginHours === undefined ? undefined : marginHours * 60 * 60 * 1000,
     finalDay: readFinalDay(),
+    suppressPublicReply: readSuppressPublicReply(),
   };
 }
 

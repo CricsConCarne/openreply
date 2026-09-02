@@ -191,13 +191,19 @@ export interface LookbackOptions {
   mediaLimit?: number;
   /** Max comments to enqueue per campaign per pass. Default COMMENT_POLL_MAX_PER_SWEEP. */
   maxPerSweep?: number;
+  /**
+   * Suppress the public comment reply, sending the DM only. Default true: a
+   * public reply on a days-old comment reads as conspicuously late. Set false to
+   * also post the reply (the campaign must still have publicReplyEnabled).
+   */
+  suppressPublicReply?: boolean;
 }
 
 /**
  * One-off Facebook backlog pass: DM leads whose comments never got one. Each is
  * scheduled for the same UTC time-of-day it was left (the recipient's original
  * active local hour — see `planLookbackSend`) and only while inside Meta's
- * private-reply window; the public reply is suppressed. Facebook-only: the
+ * private-reply window; the public reply is suppressed by default. Facebook-only: the
  * Instagram live sweep already covers Instagram, and this backfill is scoped to
  * the channel just deployed.
  */
@@ -214,7 +220,7 @@ export async function runLookback(
     maxPerSweep: opts.maxPerSweep ?? MAX_NEW_PER_SWEEP,
     plan: {
       source: "POLLING",
-      suppressPublicReply: true,
+      suppressPublicReply: opts.suppressPublicReply ?? true,
       scheduleFor: (timestamp, at) => {
         const commentedAtMs = Date.parse(timestamp);
         if (!Number.isFinite(commentedAtMs)) return null;
