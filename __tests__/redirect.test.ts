@@ -8,6 +8,9 @@ const { mockPrisma } = vi.hoisted(() => ({
     linkClick: {
       create: vi.fn(),
     },
+    dmLog: {
+      findFirst: vi.fn(),
+    },
   },
 }));
 
@@ -30,6 +33,7 @@ describe("tracked link redirect route", () => {
       destinationUrl: "https://example.com/offer",
       automation: {
         socialAccountId: "instagram_account_123",
+        socialAccount: { platform: "INSTAGRAM" },
       },
     });
     mockPrisma.linkClick.create.mockResolvedValue({});
@@ -75,6 +79,7 @@ describe("tracked link redirect route", () => {
       destinationUrl: "https://example.com/fb-offer",
       automation: {
         socialAccountId: "facebook_page_account_9",
+        socialAccount: { platform: "FACEBOOK" },
       },
     });
     mockPrisma.linkClick.create.mockResolvedValue({});
@@ -117,5 +122,83 @@ describe("tracked link redirect route", () => {
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("https://manychat-alternative.com/");
     expect(mockPrisma.linkClick.create).not.toHaveBeenCalled();
+  });
+});
+
+const TEMPLATE =
+  "https://dasreplay.com/pricing/?utm_source={platform}&utm_medium=dm&utm_content={post}";
+
+function linkWithDestination(destinationUrl: string, platform = "INSTAGRAM") {
+  return {
+    id: "link_1",
+    workspaceId: "workspace_1",
+    automationId: "automation_1",
+    destinationUrl,
+    automation: { socialAccountId: "account_1", socialAccount: { platform } },
+  };
+}
+
+async function click(url: string) {
+  return GET(new Request(url) as Parameters<typeof GET>[0], {
+    params: Promise.resolve({ slug: "abc" }),
+  });
+}
+
+describe("tracked link redirect with merge codes", () => {
+  it("fills the post a DM was sent for and records it on the click", async () => {
+    mockPrisma.trackedLink.findUnique.mockResolvedValue(linkWithDestination(TEMPLATE));
+    mockPrisma.dmLog.findFirst.mockResolvedValue({ id: "log_1" });
+    mockPrisma.linkClick.create.mockResolvedValue({});
+
+    const response = await click("https://reply.dasreplay.com/r/abc?p=1254_99");
+
+    expect(response.headers.get("location")).toBe(
+      "https://dasreplay.com/pricing/?utm_source=instagram&utm_medium=dm&utm_content=post-1254-99"
+    );
+    expect(mockPrisma.dmLog.findFirst).toHaveBeenCalledWith({
+      where: { automationId: "automation_1", mediaId: "1254_99" },
+      select: { id: true },
+    });
+    expect(mockPrisma.linkClick.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ mediaId: "1254_99" }),
+    });
+  });
+
+  it("treats a post this campaign never DMed for as unknown", async () => {
+    mockPrisma.trackedLink.findUnique.mockResolvedValue(linkWithDestination(TEMPLATE));
+    mockPrisma.dmLog.findFirst.mockResolvedValue(null);
+    mockPrisma.linkClick.create.mockResolvedValue({});
+
+    const response = await click("https://reply.dasreplay.com/r/abc?p=forged");
+
+    expect(response.headers.get("location")).toContain("utm_content=post-unknown");
+    expect(mockPrisma.linkClick.create).toHaveBeenCalledWith({
+      data: expect.not.objectContaining({ mediaId: expect.anything() }),
+    });
+  });
+
+  it("fills unknown without a lookup when the link carries no post", async () => {
+    mockPrisma.trackedLink.findUnique.mockResolvedValue(
+      linkWithDestination(TEMPLATE, "FACEBOOK")
+    );
+    mockPrisma.linkClick.create.mockResolvedValue({});
+
+    const response = await click("https://reply.dasreplay.com/r/abc");
+
+    expect(response.headers.get("location")).toBe(
+      "https://dasreplay.com/pricing/?utm_source=facebook&utm_medium=dm&utm_content=post-unknown"
+    );
+    expect(mockPrisma.dmLog.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("redirects a destination without codes byte-identically, post or not", async () => {
+    const staticUrl = "https://dasreplay.com/pricing/?utm_source=instagram&utm_content=x";
+    mockPrisma.trackedLink.findUnique.mockResolvedValue(linkWithDestination(staticUrl));
+    mockPrisma.dmLog.findFirst.mockResolvedValue({ id: "log_1" });
+    mockPrisma.linkClick.create.mockResolvedValue({});
+
+    const response = await click("https://reply.dasreplay.com/r/abc?p=123");
+
+    expect(response.headers.get("location")).toBe(staticUrl);
   });
 });

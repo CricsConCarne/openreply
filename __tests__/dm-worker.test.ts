@@ -406,6 +406,77 @@ describe("DM Worker — comments left on an ad", () => {
   });
 });
 
+describe("DM Worker — the post a link was sent for", () => {
+  const linkedAutomation = {
+    ...mockAutomation,
+    trackedLinks: [
+      { slug: "abc123", label: null, destinationUrl: "https://example.com" },
+    ],
+  };
+
+  it("puts the source post of an ad comment on the link button", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([linkedAutomation]);
+
+    await getProcessor()(
+      createMockJob({ ...mockJobData, mediaId: "ad_media_999", originalMediaId: "media_101" })
+    );
+
+    expect(mockSendPrivateReplyWithLinkButton).toHaveBeenCalledWith(
+      "decrypted_token",
+      "ig_456",
+      "comment_555",
+      expect.any(String),
+      [{ title: "Open link", url: "http://localhost:3000/r/abc123?p=media_101" }]
+    );
+  });
+
+  it("records the post on the DM log", async () => {
+    await getProcessor()(
+      createMockJob({ ...mockJobData, mediaId: "ad_media_999", originalMediaId: "media_101" })
+    );
+
+    expect(mockPrisma.dmLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ mediaId: "media_101" }),
+    });
+  });
+
+  it("carries the post onto the inline fallback when the button template is rejected", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([
+      { ...linkedAutomation, dmMessage: "here: {link}" },
+    ]);
+    mockSendPrivateReplyWithLinkButton.mockRejectedValue(
+      Object.assign(new Error("template"), { name: "MetaApiError", code: 100 })
+    );
+
+    await getProcessor()(createMockJob());
+
+    expect(mockSendPrivateReply).toHaveBeenCalledWith(
+      "decrypted_token",
+      "ig_456",
+      "comment_555",
+      "here: http://localhost:3000/r/abc123?p=media_101"
+    );
+  });
+
+  it("reveals the link for the commenter's latest post after a button tap", async () => {
+    mockPrisma.automation.findFirst.mockResolvedValue(linkedAutomation);
+    mockPrisma.dmLog.findFirst.mockImplementation(
+      async (args: { where?: { mediaId?: unknown } } = {}) =>
+        args.where?.mediaId ? { mediaId: "media_202" } : { commenterName: "commenter_user" }
+    );
+
+    await getProcessor()(createMockPostbackJob());
+
+    expect(mockSendDirectMessageWithLinkButton).toHaveBeenCalledWith(
+      "decrypted_token",
+      "ig_456",
+      "commenter_999",
+      expect.any(String),
+      [{ title: "Open link", url: "http://localhost:3000/r/abc123?p=media_202" }]
+    );
+  });
+});
+
 describe("DM Worker — Full Pipeline", () => {
   it("should send a private reply for a matching comment", async () => {
     const processor = getProcessor();
@@ -712,8 +783,8 @@ describe("DM Worker — Full Pipeline", () => {
       "comment_555",
       "Hey commenter_user! Here is the offer:",
       [
-        { title: "Get offer", url: "http://localhost:3000/r/abc123" },
-        { title: "Book a call", url: "http://localhost:3000/r/def456" },
+        { title: "Get offer", url: "http://localhost:3000/r/abc123?p=media_101" },
+        { title: "Book a call", url: "http://localhost:3000/r/def456?p=media_101" },
       ]
     );
   });
@@ -783,7 +854,7 @@ describe("DM Worker — Full Pipeline", () => {
       "ig_456",
       "comment_555",
       "Hey commenter_user! Here is the offer:",
-      [{ title: "Get offer", url: "http://localhost:3000/r/abc123" }]
+      [{ title: "Get offer", url: "http://localhost:3000/r/abc123?p=media_101" }]
     );
   });
 

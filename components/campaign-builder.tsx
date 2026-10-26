@@ -19,6 +19,7 @@ import { useRouter } from "next/navigation";
 // runtime (node:module) into the browser chunk, which Turbopack cannot bundle.
 // enums.ts is pure constants and is documented as safe to import directly.
 import { SocialPlatform } from "@/app/generated/prisma/enums";
+import { fillMergeCodes } from "@/lib/tracking/merge-codes";
 import AccountSelect, { type AccountOption } from "@/components/account-select";
 import PostPicker from "@/components/post-picker";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
@@ -930,6 +931,10 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
                   placeholder="https://yourlink.com/offer"
                   className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground placeholder:text-zinc-500 focus:border-accent/40 focus:outline-none"
                 />
+                <MergeCodeHint
+                  url={trackedDestinationUrl.trim()}
+                  platform={selectedAccount?.platform ?? SocialPlatform.INSTAGRAM}
+                />
                 <input
                   value={linkButtonLabel}
                   onChange={(e) => setLinkButtonLabel(e.target.value)}
@@ -1064,5 +1069,22 @@ export default function CampaignBuilder({ mode, campaignId }: CampaignBuilderPro
       </div>
       </div>
     </div>
+  );
+}
+
+const EXAMPLE_POST_ID = "18045123456789012";
+
+/**
+ * Explains the destination URL's merge codes and previews them filled for an
+ * example post, so the owner sees the exact link a click will land on.
+ */
+function MergeCodeHint({ url, platform }: { url: string; platform: SocialPlatform }) {
+  const preview = fillMergeCodes(url, { platform, postId: EXAMPLE_POST_ID });
+  return (
+    <p className="text-xs text-muted break-all">
+      {preview === url
+        ? "Add {platform} or {post} to tag each click with the network and the post it came from."
+        : `Example click: ${preview}`}
+    </p>
   );
 }

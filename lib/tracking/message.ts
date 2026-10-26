@@ -1,7 +1,12 @@
 export interface MessageTrackedLink {
   slug: string;
   destinationUrl: string;
+  /** The post the commenter was on; filled into the destination's `{post}` at click. */
+  postId?: string;
 }
+
+/** Query param that carries the post id from the DM button to `/r/<slug>`. */
+export const POST_PARAM = "p";
 
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/i;
 
@@ -61,6 +66,15 @@ export function buildTrackedUrl(slug: string, baseUrl?: string) {
   return `${resolvedBaseUrl.replace(/\/$/, "")}/r/${slug}`;
 }
 
+export function trackedLinkUrl(
+  link: { slug: string; postId?: string },
+  baseUrl?: string
+) {
+  const url = buildTrackedUrl(link.slug, baseUrl);
+  if (!link.postId) return url;
+  return `${url}?${POST_PARAM}=${encodeURIComponent(link.postId)}`;
+}
+
 export function renderMessageWithTracking({
   message,
   commenterName,
@@ -77,7 +91,7 @@ export function renderMessageWithTracking({
 
   if (!primaryLink) return rendered;
 
-  const trackedUrl = buildTrackedUrl(primaryLink.slug, baseUrl);
+  const trackedUrl = trackedLinkUrl(primaryLink, baseUrl);
 
   if (/\{link\}/i.test(rendered)) {
     return rendered.replace(/\{link\}/gi, trackedUrl);

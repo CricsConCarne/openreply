@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import CampaignPreview, { type PreviewTab } from "@/components/campaign-preview";
+import PostBreakdown from "@/components/post-breakdown";
 
 interface Campaign {
   id: string;
@@ -324,15 +325,21 @@ export default function CampaignDetailPage() {
         </div>
 
         {tab === "insights" && (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            {metrics.map((m) => (
-              <div key={m.label} className="panel rounded p-4">
-                <p className="text-sm text-muted">{m.label}</p>
-                <p className="mt-1 text-2xl font-semibold text-foreground">
-                  {m.value}
-                </p>
-              </div>
-            ))}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+              {metrics.map((m) => (
+                <div key={m.label} className="panel rounded p-4">
+                  <p className="text-sm text-muted">{m.label}</p>
+                  <p className="mt-1 text-2xl font-semibold text-foreground">
+                    {m.value}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <PostBreakdown
+              automationId={campaign.id}
+              socialAccountId={campaign.socialAccountId}
+            />
           </div>
         )}
 

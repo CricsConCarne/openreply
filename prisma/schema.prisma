@@ -243,6 +243,11 @@ model DmLog {
   // inside Meta's 7-day private-reply window.
   commentedAt   DateTime?
 
+  // The post the comment was on — the source post for a comment on an ad
+  // (`originalMediaId`). Fills the tracked link's `{post}` merge code, and a
+  // click's `p` only counts when a log row with this automation + post exists.
+  mediaId       String?
+
   // The public comment reply is delivered independently of the DM, so its
   // outcome is tracked separately. publicReplySentAt makes it idempotent across
   // retries; a DM failure never blocks or re-posts the public reply.
@@ -259,6 +264,7 @@ model DmLog {
   @@unique([automationId, commentId])
   @@index([workspaceId])
   @@index([automationId])
+  @@index([automationId, mediaId])
   @@index([socialAccountId])
   @@index([status])
 }
@@ -306,6 +312,8 @@ model LinkClick {
   ipHash             String?
   userAgent          String?
   referrer           String?
+  // The post whose DM carried this click; null when the link had no verified post.
+  mediaId            String?
   createdAt          DateTime @default(now())
 
   workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -317,6 +325,7 @@ model LinkClick {
   @@index([automationId])
   @@index([socialAccountId])
   @@index([trackedLinkId])
+  @@index([automationId, mediaId])
   @@index([createdAt])
   @@index([workspaceId, createdAt])
 }

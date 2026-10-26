@@ -7,6 +7,8 @@ import {
 import {
   buildTrackedUrl,
   extractFirstUrl,
+  POST_PARAM,
+  trackedLinkUrl,
   renderMessageWithTracking,
   replaceUrlWithTrackedPlaceholder,
 } from "../lib/tracking/message";
@@ -76,6 +78,32 @@ describe("tracked link messages", () => {
     expect(buildTrackedUrl("abc123", "https://manychat-alternative.com/")).toBe(
       "https://manychat-alternative.com/r/abc123"
     );
+  });
+});
+
+describe("tracked link URL for a post", () => {
+  it("carries the post the comment was on", () => {
+    expect(
+      trackedLinkUrl({ slug: "abc123", postId: "1254_9" }, "https://reply.dasreplay.com")
+    ).toBe(`https://reply.dasreplay.com/r/abc123?${POST_PARAM}=1254_9`);
+  });
+
+  it("is the plain tracked URL without a post", () => {
+    expect(trackedLinkUrl({ slug: "abc123" }, "https://reply.dasreplay.com")).toBe(
+      "https://reply.dasreplay.com/r/abc123"
+    );
+  });
+
+  it("puts the post on the link rendered into the message", () => {
+    expect(
+      renderMessageWithTracking({
+        message: "grab it: {link}",
+        trackedLinks: [
+          { slug: "abc123", destinationUrl: "https://example.com", postId: "77" },
+        ],
+        baseUrl: "https://reply.dasreplay.com",
+      })
+    ).toBe(`grab it: https://reply.dasreplay.com/r/abc123?${POST_PARAM}=77`);
   });
 });
 

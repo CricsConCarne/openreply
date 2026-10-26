@@ -1,3 +1,5 @@
+import { postRef } from "./merge-codes";
+
 const SKIPPED_PREFIX = "SKIPPED_";
 
 export interface StatusCountRow {
@@ -50,4 +52,34 @@ export function normalizeTopKeywords(rows: KeywordCountRow[], limit = 5) {
     }))
     .sort((a, b) => b.count - a.count || a.keyword.localeCompare(b.keyword))
     .slice(0, limit);
+}
+
+export interface PostCountRow {
+  mediaId: string | null;
+  _count: { _all: number };
+}
+
+export interface PostBreakdown {
+  mediaId: string;
+  ref: string;
+  dms: number;
+  clicks: number;
+}
+
+/** DMs sent and link clicks per post: most DMs first, then most clicks. */
+export function summarizeByPost(
+  dmRows: PostCountRow[],
+  clickRows: PostCountRow[]
+): PostBreakdown[] {
+  const byPost = new Map<string, PostBreakdown>();
+  const rowFor = (mediaId: string) => {
+    const existing = byPost.get(mediaId);
+    if (existing) return existing;
+    const created = { mediaId, ref: postRef(mediaId), dms: 0, clicks: 0 };
+    byPost.set(mediaId, created);
+    return created;
+  };
+  for (const row of dmRows) if (row.mediaId) rowFor(row.mediaId).dms += row._count._all;
+  for (const row of clickRows) if (row.mediaId) rowFor(row.mediaId).clicks += row._count._all;
+  return [...byPost.values()].sort((a, b) => b.dms - a.dms || b.clicks - a.clicks);
 }

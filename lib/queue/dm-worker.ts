@@ -29,8 +29,8 @@ import {
 } from "@/lib/billing/usage";
 import { recordWorkerAlert } from "@/lib/ops/worker-health";
 import {
-  buildTrackedUrl,
   renderMessageWithTracking,
+  trackedLinkUrl,
   renderMessageWithoutLink,
 } from "@/lib/tracking/message";
 
@@ -119,7 +119,16 @@ type WorkerTrackedLink = {
   slug: string;
   label: string | null;
   destinationUrl: string;
+  postId?: string;
 };
+
+/** The campaign's links, each carrying the post its DM is for (the `{post}` merge code). */
+function linksForPost(
+  trackedLinks: WorkerTrackedLink[],
+  postId: string | undefined
+): WorkerTrackedLink[] {
+  return trackedLinks.map((link) => ({ ...link, postId }));
+}
 
 /**
  * Build the tappable link buttons for a DM. The first link uses the campaign's
@@ -131,7 +140,7 @@ function buildLinkButtons(
   primaryLabel: string | null
 ): { title: string; url: string }[] {
   return trackedLinks.slice(0, 3).map((link, index) => ({
-    url: buildTrackedUrl(link.slug),
+    url: trackedLinkUrl(link),
     title: (index === 0 ? primaryLabel : link.label) || link.label || "Open link",
   }));
 }
@@ -150,7 +159,7 @@ function buildInlineLinkFallback(
   const base =
     renderMessageWithTracking({ message, commenterName, trackedLinks }) ||
     bodyText;
-  const extraUrls = trackedLinks.slice(1).map((link) => buildTrackedUrl(link.slug));
+  const extraUrls = trackedLinks.slice(1).map((link) => trackedLinkUrl(link));
   return extraUrls.length > 0 ? `${base}\n${extraUrls.join("\n")}` : base;
 }
 
@@ -253,6 +262,8 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
   // lookback). Recorded on the DmLog so the lead's real age is auditable and so
   // a later lookback can schedule off it.
   const commentedAtDate = commentedAt ? new Date(commentedAt) : undefined;
+  // A comment on an ad credits the post the ad was made from.
+  const postId = originalMediaId ?? mediaId;
 
   const automations = await prisma.automation.findMany({
     where: {
@@ -287,6 +298,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
   });
 
   for (const automation of automations) {
+    const postLinks = linksForPost(automation.trackedLinks, postId);
     // "Any word" campaigns fire on every comment; otherwise require a keyword hit.
     const matchResult = automation.matchAnyWord
       ? { matched: true, matchedKeyword: null }
@@ -338,6 +350,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commentText,
           commentId,
           commentedAt: commentedAtDate,
+          mediaId: postId,
           matchedKeyword: matchResult.matchedKeyword,
           status: "FAILED",
           errorMessage: "No access token available for the connected account",
@@ -370,6 +383,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commentText,
           commentId,
           commentedAt: commentedAtDate,
+          mediaId: postId,
           matchedKeyword: matchResult.matchedKeyword,
           status: "FAILED",
           errorMessage: "Failed to decrypt the account access token",
@@ -396,6 +410,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           commentText,
           commentId,
           commentedAt: commentedAtDate,
+          mediaId: postId,
           matchedKeyword: matchResult.matchedKeyword,
           status: "PENDING",
           attempts: job.attemptsMade + 1,
@@ -409,6 +424,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         data: {
           status: "PENDING",
           attempts: job.attemptsMade + 1,
+          mediaId: postId,
           matchedKeyword: matchResult.matchedKeyword,
           errorMessage: null,
         },
@@ -435,7 +451,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         const publicReply = renderMessageWithTracking({
           message: chosen,
           commenterName,
-          trackedLinks: automation.trackedLinks,
+          trackedLinks: postLinks,
         });
         await channel.replyToComment({
           accessToken,
@@ -657,7 +673,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
             commenterName,
           }) || "Here's your link:";
         const buttons = buildLinkButtons(
-          automation.trackedLinks,
+          postLinks,
           automation.linkButtonLabel
         );
 
@@ -682,7 +698,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
           const fallbackMessage = buildInlineLinkFallback(
             automation.dmMessage,
             commenterName,
-            automation.trackedLinks,
+            postLinks,
             bodyText
           );
           try {
@@ -703,7 +719,7 @@ async function processComment(job: Job<ProcessCommentJob>): Promise<void> {
         const dmMessage = renderMessageWithTracking({
           message: automation.dmMessage,
           commenterName,
-          trackedLinks: automation.trackedLinks,
+          trackedLinks: postLinks,
         });
         await channel.sendPrivateReply({
           accessToken,
@@ -876,11 +892,13 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     return;
   }
 
+  const postId = await findLatestPostId(automation.id, userId);
+
   try {
     await sendRevealDirectMessage(
       channel,
       accessToken,
-      automation,
+      { ...automation, trackedLinks: linksForPost(automation.trackedLinks, postId) },
       userId,
       commenterName,
       "postback"
@@ -961,6 +979,23 @@ async function processPostback(job: Job<ProcessPostbackJob>): Promise<void> {
     });
     throw error;
   }
+}
+
+
+/**
+ * A button tap carries no post, so the revealed link credits the post the user
+ * last commented on for this campaign.
+ */
+async function findLatestPostId(
+  automationId: string,
+  commenterId: string
+): Promise<string | undefined> {
+  const log = await prisma.dmLog.findFirst({
+    where: { automationId, commenterId, mediaId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    select: { mediaId: true },
+  });
+  return log?.mediaId ?? undefined;
 }
 
 /**
