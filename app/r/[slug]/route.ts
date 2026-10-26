@@ -27,7 +27,10 @@ export async function GET(request: NextRequest, { params }: RedirectRouteProps) 
   });
 
   if (!trackedLink) {
-    return NextResponse.redirect(new URL("/", request.url), { status: 302 });
+    // Behind the proxy request.url is the container's localhost; send the
+    // visitor to the public origin instead.
+    const origin = process.env.NEXTAUTH_URL ?? request.url;
+    return NextResponse.redirect(new URL("/", origin), { status: 302 });
   }
 
   const postId = await findVerifiedPostId(

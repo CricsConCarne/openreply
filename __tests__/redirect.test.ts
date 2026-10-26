@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockPrisma } = vi.hoisted(() => ({
   mockPrisma: {
@@ -22,6 +22,10 @@ import { GET } from "../app/r/[slug]/route";
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("tracked link redirect route", () => {
@@ -107,6 +111,20 @@ describe("tracked link redirect route", () => {
         trackedLinkId: "link_fb_1",
       }),
     });
+  });
+
+  // Behind the reverse proxy the request URL is the container's own
+  // (localhost:3000), so the homepage has to come from the public origin.
+  it("redirects unknown slugs to the public origin's homepage", async () => {
+    vi.stubEnv("NEXTAUTH_URL", "https://reply.dasreplay.com");
+    mockPrisma.trackedLink.findUnique.mockResolvedValue(null);
+
+    const response = await GET(
+      new Request("https://localhost:3000/r/missing") as Parameters<typeof GET>[0],
+      { params: Promise.resolve({ slug: "missing" }) }
+    );
+
+    expect(response.headers.get("location")).toBe("https://reply.dasreplay.com/");
   });
 
   it("redirects unknown slugs to the homepage without logging a click", async () => {
