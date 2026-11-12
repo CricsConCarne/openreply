@@ -249,7 +249,7 @@ describe("facebookProvider — getRecentComments", () => {
     };
   }
 
-  it("normalizes, skips from-less comments, and derives ownerReplied", async () => {
+  it("normalizes comments and derives ownerReplied", async () => {
     const fetchMock = stubFetchSequence([
       {
         data: [
@@ -263,7 +263,6 @@ describe("facebookProvider — getRecentComments", () => {
             from: { id: "author2", name: "Fan2" },
             comments: { data: [{ from: { id: "someone-else" } }] },
           }),
-          comment({ id: "c3", from: undefined }),
         ],
       },
     ]);
@@ -300,6 +299,30 @@ describe("facebookProvider — getRecentComments", () => {
       "id,message,from{id,name},created_time,comments{from{id}}"
     );
     expect(url.searchParams.get("order")).toBe("reverse_chronological");
+  });
+
+  // Graph omits `from` on every comment once the app drops to Standard Access;
+  // a private reply only needs the comment id, so the comment must survive.
+  it("keeps a from-less comment under a per-comment placeholder author", async () => {
+    stubFetchSequence([{ data: [comment({ id: "c3", from: undefined })] }]);
+
+    const out = await facebookProvider.getRecentComments({
+      accessToken: "tok",
+      mediaId: "post1",
+      sinceMs: Date.parse("2026-08-01T00:00:00Z"),
+      ownerId: "page1",
+    });
+
+    expect(out).toEqual([
+      {
+        id: "c3",
+        text: "hello",
+        authorId: "unknown:c3",
+        authorName: undefined,
+        timestamp: "2026-08-10T00:00:00+0000",
+        ownerReplied: false,
+      },
+    ]);
   });
 
   it("stops paginating once a page's oldest comment predates the lookback", async () => {

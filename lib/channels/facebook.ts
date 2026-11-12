@@ -93,9 +93,7 @@ export const facebookProvider: ChannelProvider = {
 
   async getRecentComments(p: GetRecentCommentsParams): Promise<ChannelComment[]> {
     const comments = await fetchRecentComments(p);
-    return comments
-      .filter((c) => c.from)
-      .map((c) => toChannelComment(c, p.ownerId));
+    return comments.map((c) => toChannelComment(c, p.ownerId));
   },
 
   async listPosts(p: ListPostsParams): Promise<ChannelPost[]> {
@@ -217,6 +215,12 @@ interface FacebookComment {
   comments?: { data?: { from?: { id: string } }[] };
 }
 
+// Graph omits `from` on Page comments when the app lacks Advanced Access to
+// pages_read_user_content. The private reply targets the comment id, so the
+// comment stays actionable; the placeholder keeps the author slot non-empty
+// and unique per comment.
+const UNKNOWN_AUTHOR_PREFIX = "unknown:";
+
 // A comment page's worth of comments before lookback filtering, newest first.
 const COMMENTS_PAGE_SIZE = 50;
 const COMMENTS_MAX = 800;
@@ -275,7 +279,7 @@ function toChannelComment(
   return {
     id: comment.id,
     text: comment.message ?? "",
-    authorId: comment.from?.id ?? "",
+    authorId: comment.from?.id ?? `${UNKNOWN_AUTHOR_PREFIX}${comment.id}`,
     authorName: comment.from?.name,
     timestamp: comment.created_time,
     ownerReplied,
