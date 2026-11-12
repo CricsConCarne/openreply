@@ -240,3 +240,21 @@ describe("reconcileComments — matchAnyPost uses provider.listPosts", () => {
     expect(mockGetRecentComments).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("reconcileComments — one comment reachable from two media ids", () => {
+  // Facebook lists a reel under both /published_posts and /video_reels; both
+  // ids return the same comments. Enqueuing each twice raced two jobs into
+  // posting the public reply twice.
+  it("enqueues a comment seen under two media ids exactly once", async () => {
+    mockPrisma.automation.findMany.mockResolvedValue([
+      automation({ postId: null, matchAnyPost: true }),
+    ]);
+    mockListPosts.mockResolvedValue([{ id: "post-id" }, { id: "reel-id" }]);
+    mockGetRecentComments.mockResolvedValue([comment({ id: "shared" })]);
+
+    await reconcileComments();
+
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    expect(mockQueueAdd.mock.calls[0][1].commentId).toBe("shared");
+  });
+});

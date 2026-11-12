@@ -337,6 +337,10 @@ async function sweepCampaign(
   if (mediaIds.length === 0) return stat;
 
   const queue = getDMQueue();
+  // One video can be listed under two media ids (Facebook's post id and reel
+  // id) that return the same comments; a comment enqueued twice races two jobs
+  // into posting its public reply twice.
+  const seenCommentIds = new Set<string>();
 
   for (const mediaId of mediaIds) {
     let comments: ChannelComment[];
@@ -355,6 +359,8 @@ async function sweepCampaign(
     // Keep only comments that (a) aren't the account's own, (b) match the
     // keyword, and (c) have no reply from the account owner yet.
     const needsAction = comments.filter((c) => {
+      if (seenCommentIds.has(c.id)) return false;
+      seenCommentIds.add(c.id);
       if (!c.authorId || c.authorId === account.externalId) return false;
 
       const matched = automation.matchAnyWord
